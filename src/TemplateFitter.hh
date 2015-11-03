@@ -237,7 +237,7 @@ private:
   bool wasDiscontiguous_;
 
   //spline stuff
-  const TSpline3* tSpline_;
+  std::unique_ptr<TSpline3> tSpline_;
   std::unique_ptr<TSpline3> dSpline_;
   std::unique_ptr<TSpline3> d2Spline_;
   double tMin_, tMax_;

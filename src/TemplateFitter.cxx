@@ -42,11 +42,11 @@ double TemplateFitter::getCovariance(int i, int j){
 }
 
 void TemplateFitter::setTemplate(const TSpline3* tSpline, double tMin, double tMax){
-  tSpline_ = tSpline;
+  tSpline_.reset((TSpline3*)tSpline->Clone());
   if(tSpline){
     tMin_ = tMin;
     tMax_ = tMax;  
-    dSpline_ = buildDSpline(tSpline_);
+    dSpline_ = buildDSpline(tSpline_.get());
     d2Spline_ = buildDSpline(dSpline_.get());
   }
 }
