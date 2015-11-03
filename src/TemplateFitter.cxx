@@ -79,7 +79,7 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
       deltas_ -= b_(i) * T_.row(i).transpose();
     }
 
-    //build time-time block of Hessian and solve for time stipes
+    //build time-time block of Hessian and solve for time steps
     auto diagScales = b_.block(0,0,nPulses,1).asDiagonal();
 
     Hess_.block(0,0,nPulses,nPulses) = D_ * D_.transpose();
@@ -118,9 +118,10 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
 }
 
 void TemplateFitter::evalTemplates(const std::vector<double>& tGuesses){
+  assert(tSpline_);
   for(int i = 0; i < D_.rows(); ++i){
     for(int j = 0; j < D_.cols(); ++j){
-      if((j - tGuesses[i] > -10) && (j - tGuesses[i]  < 90)){
+      if((j - tGuesses[i] > tMin_) && (j - tGuesses[i]  < tMax_)){
 	T_(i, j) = tSpline_->Eval(sampleTimes_[j] - tGuesses[i])*T_.bottomRows(1)(0,j);
 	D_(i, j) = dSpline_->Eval(sampleTimes_[j] - tGuesses[i])*T_.bottomRows(1)(0,j);
 	D2_(i, j) = d2Spline_->Eval(sampleTimes_[j] - tGuesses[i])*T_.bottomRows(1)(0,j);
@@ -160,8 +161,7 @@ void TemplateFitter::calculateCovarianceMatrix(){
   //fill in symmetric components and invert to get covariance matrix
   Hess_.block(nPulses, 0, nPulses + 1, nPulses) =
     Hess_.block(0,nPulses, nPulses, nPulses + 1).transpose();
-
-  //invert to get covariance matrix
+  
   Cov_ = Hess_.inverse();
 }
 

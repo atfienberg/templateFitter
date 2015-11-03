@@ -1,5 +1,4 @@
 /*Template fitter class built on top of the Eigen3 linear algebra library
-  Link to document as of now unwritten, but I promise I'll write it
  
   Aaron Fienberg
   fienberg@uw.edu
@@ -43,33 +42,46 @@ public:
   //order of parameters is {t1 ... tn, s1 ... sn, pedestal}
   double getCovariance(int i, int j);
   
+  //max number of iterations before giving up
   unsigned int getMaxIterations() const { return maxIterations_; }
   void setMaxIterations(unsigned int maxIters){ maxIterations_ = maxIters; }
   
+  //target accuracy. When max step size is less than this,
+  //the numerical minimization stops
   double getAccuracy() const { return accuracy_; }
   void setAccuracy(double newAccuracy){ accuracy_ = newAccuracy;}
+
+  //step size for evaluating numerical derivatives of the template
+  double getDEvalStep() const { return dEvalStep_; }
+  void setDEvalStep(double newStep) { dEvalStep_ = newStep; }
 
 
   //fit() functions
   //n pulses is determined by timeGuesses.size() 
-  //this call uses same uncertainty on all data points, defaults to one
-  //for now returns parameters in a vector {t1 .. tn, s1 ... sn, pedestal, chi2} 
-  //of length 2*nPulses +1
-  
+  //these assume a contiguous fit region
+
   //version for single pulses that doesn't require a vector for time guess
-  template<typename T>
-  Output fit(const std::vector<T>& trace, 
+  //errortype can be a number or a vector (uncertainty on each sample)
+  template<typename sampleType, typename errorType = double>
+  Output fit(const std::vector<sampleType>& trace, 
 	     double timeGuess,
-	     double noiseLevel = 1.0){
-    return fit(trace, std::vector<double> {timeGuess}, noiseLevel);
+	     errorType error = 1.0){
+
+    return fit(trace, std::vector<double> {timeGuess}, error);
+    
   }
-  
-  template<typename T>
-  Output fit(const std::vector<T>& trace, 
+ 
+  //this call uses same uncertainty on all data points, defaults to 1.0
+ 
+  template<typename sampleType, typename noiseType = double>
+  Output fit(const std::vector<sampleType>& trace, 
 	     const std::vector<double>& timeGuesses,
-	     double noiseLevel = 1.0){
-    static_assert(std::is_arithmetic<T>::value, 
+	     noiseType noiseLevel = 1.0){
+    
+    static_assert(std::is_arithmetic<sampleType>::value, 
 		  "trace must be vector of numbers!");
+    static_assert(std::is_arithmetic<noiseType>::value, 
+		  "noise level must be a number!");
     assert(noiseLevel != 0);
 
     bool resized = false;
@@ -97,24 +109,19 @@ public:
     return doFit(timeGuesses);       
   }  
 
-  //these function allows for different errors on each data point. 
+  //this call allows for different errors on each data point. 
   //trace.size() must equal errors.size()
-  
-  //arb error version for single pulses 
-  template<typename T>
-  Output fit(const std::vector<T>& trace, 
-	     double timeGuess,
-	     const std::vector<double>& errors){
-    return fit(trace, std::vector<double> {timeGuess}, errors);
-  }
 
-  //arb error for multiple pulses
-  template<typename T>
-  Output fit(const std::vector<T>& trace, 
+  //arbitrary error on each sample
+  template<typename sampleType, typename noiseType>
+  Output fit(const std::vector<sampleType>& trace, 
 	     const std::vector<double>& timeGuesses,
-	     const std::vector<double>& errors){
-    static_assert(std::is_arithmetic<T>::value, 
+	     const std::vector<noiseType>& errors){
+    
+    static_assert(std::is_arithmetic<sampleType>::value, 
 		  "trace must be vector of numbers!");
+    static_assert(std::is_arithmetic<noiseType>::value, 
+		  "errors must be vector of numbers!");
     assert(errors.size() == trace.size());
     
     if((trace.size() != pVect_.rows()) || (timeGuesses.size() != D_.rows())){
@@ -135,28 +142,35 @@ public:
     return doFit(timeGuesses);
   }
 
-  //calls for fitting discontinous regions
+  //discontiguousFit() functions for fitting discontiguous regions
   //these are mainly useful for clipped pulses
+  //you must pass in vector of sample times along with vector of sample values
   
-  //single pulse versions
-  template<typename T1, typename T2, typename errorType>
-  Output discontiguousFit(const std::vector<T1>& trace, 
-			  const std::vector<T2>& sampleTimes, 
+  //single pulse version
+  template<typename sampleType, typename timeType, typename errorType = double>
+  Output discontiguousFit(const std::vector<sampleType>& trace, 
+			  const std::vector<timeType>& sampleTimes, 
 			  double timeGuess,
-			  errorType error
+			  errorType error = 1.0
 			  ){
+
     return discontiguousFit(trace, sampleTimes, std::vector<double> {timeGuess}, error);    
+    
   }
 
-  template <typename T1, typename T2>
-  Output discontiguousFit(const std::vector<T1>& trace, 
-			  const std::vector<T2>& sampleTimes, 
+  //discontiguous fit with flat errors
+  template <typename sampleType, typename timeType, typename noiseType>
+  Output discontiguousFit(const std::vector<sampleType>& trace, 
+			  const std::vector<timeType>& sampleTimes, 
 			  const std::vector<double>& timeGuesses,
-			  double noiseLevel = 1.0){ 
-    static_assert(std::is_arithmetic<T1>::value, 
+			  noiseType noiseLevel = 1.0){ 
+    
+    static_assert(std::is_arithmetic<sampleType>::value, 
 		  "trace must be vector of numbers!");
-    static_assert(std::is_arithmetic<T2>::value, 
+    static_assert(std::is_arithmetic<timeType>::value, 
 		  "sampleTimes must be vector of numbers!");
+    static_assert(std::is_arithmetic<noiseType>::value, 
+		  "noise level must be a number!");
     assert(noiseLevel != 0);
     assert(trace.size() == sampleTimes.size());
     
@@ -183,17 +197,19 @@ public:
     return doFit(timeGuesses);       
   }   
 
-  //discontiguous fit for arbitrary errors    
-  template<typename T1, typename T2>
-  Output discontiguousFit(const std::vector<T1>& trace, 
-			  const std::vector<T2>& sampleTimes, 
+  //discontiguous fit with arbitrary errors    
+  template<typename sampleType, typename timeType, typename noiseType>
+  Output discontiguousFit(const std::vector<sampleType>& trace, 
+			  const std::vector<timeType>& sampleTimes, 
 			  const std::vector<double>& timeGuesses,
-			  const std::vector<double>& errors){ 
+			  const std::vector<noiseType>& errors){ 
 
-    static_assert(std::is_arithmetic<T1>::value, 
+    static_assert(std::is_arithmetic<sampleType>::value, 
 		  "trace must be vector of numbers!");
-    static_assert(std::is_arithmetic<T2>::value, 
+    static_assert(std::is_arithmetic<timeType>::value, 
 		  "sampleTimes must be vector of numbers!");
+    static_assert(std::is_arithmetic<noiseType>::value, 
+		  "errors must be vector of numbers!");
     assert(trace.size() == sampleTimes.size());
     assert(errors.size() == trace.size());   
 
@@ -252,7 +268,6 @@ private:
   Eigen::VectorXd pVect_;
   //T matrix (see document)
   Eigen::MatrixXd T_;
-  //b matrix (see document)
   //linear parameters will be stored in here after each fit
   Eigen::VectorXd b_;
   //vector of pulse minus fit function over noise
