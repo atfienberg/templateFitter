@@ -159,7 +159,7 @@ public:
   }
 
   //discontiguous fit with flat errors
-  template <typename sampleType, typename timeType, typename noiseType>
+  template <typename sampleType, typename timeType, typename noiseType = double>
   Output discontiguousFit(const std::vector<sampleType>& trace, 
 			  const std::vector<timeType>& sampleTimes, 
 			  const std::vector<double>& timeGuesses,
