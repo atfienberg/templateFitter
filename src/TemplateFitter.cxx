@@ -133,8 +133,9 @@ void TemplateFitter::evalTemplates(const std::vector<double>& tGuesses){
   double stepsPerTime = (template_.size() - 1)/(tMax_ - tMin_);
   for(int i = 0; i < D_.rows(); ++i){
     for(int j = 0; j < D_.cols(); ++j){
-      if((sampleTimes_[j] - tGuesses[i] > tMin_) && (sampleTimes_[j] - tGuesses[i]  < tMax_)){
-	double where = (sampleTimes_[j] - tGuesses[i] - tMin_) * stepsPerTime;
+      double t = sampleTimes_[j] - tGuesses[i];
+      if( ( t > tMin_) && ( t  < tMax_) ){
+	double where = (t - tMin_) * stepsPerTime;
 	int low = std::floor(where);
 	double dt = where - low;
 	T_(i, j) = (template_[low] + (template_[low+1] - template_[low])*dt)
