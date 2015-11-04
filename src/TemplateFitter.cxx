@@ -130,24 +130,34 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
 }
 
 void TemplateFitter::evalTemplates(const std::vector<double>& tGuesses){
+  
   double stepsPerTime = (template_.size() - 1)/(tMax_ - tMin_);
+  
   for(int i = 0; i < D_.rows(); ++i){
     for(int j = 0; j < D_.cols(); ++j){
+  
       double t = sampleTimes_[j] - tGuesses[i];
       if( ( t > tMin_) && ( t  < tMax_) ){
+
 	double where = (t - tMin_) * stepsPerTime;
 	int low = std::floor(where);
 	double dt = where - low;
+
 	T_(i, j) = (template_[low] + (template_[low+1] - template_[low])*dt)
 	  *T_.bottomRows(1)(0,j);
+
 	D_(i, j) = (dTemplate_[low] + (dTemplate_[low+1] - dTemplate_[low])*dt)
 	  *T_.bottomRows(1)(0,j);
+
 	D2_(i, j) = (d2Template_[low] + (d2Template_[low+1] - d2Template_[low])*dt)
 	  *T_.bottomRows(1)(0,j);
       }
+
       else{
 	T_(i, j) = 0;
+
 	D_(i, j) = 0;
+
 	D2_(i, j) = 0;
       }
     }
@@ -186,13 +196,16 @@ void TemplateFitter::calculateCovarianceMatrix(){
 
 std::vector<double> TemplateFitter::buildDTemplate(const std::vector<double>& temp){
   assert(temp.size() > 1);
+
   std::vector<double> dTemplate(temp.size());
-  double stepSize = (tMax_ - tMin_) / (template_.size() - 1);
+  double stepSize = (tMax_ - tMin_) / (temp.size() - 1);
+  
   dTemplate[0] = (temp[1] - temp[0]) / stepSize;
   for(unsigned int i = 1; i < temp.size() - 1; ++i){
     dTemplate[i] = (temp[i+1] - temp[i-1]) / (2 * stepSize);
   }
   dTemplate[temp.size() - 1] = (temp[temp.size() - 1] - temp[temp.size() - 2]) / stepSize;
+ 
   return dTemplate;
 }
 
