@@ -16,7 +16,6 @@ TemplateFitter::TemplateFitter(const TSpline3* tSpline, double tMin, double tMax
   lastNoiseLevel_(0),
   isFlatNoise_(false),
   wasDiscontiguous_(false),
-  tPts_(1000),
   sampleTimes_(nSamples),
   pVect_(nSamples),
   T_(nPulses + 1, nSamples),
@@ -41,18 +40,28 @@ double TemplateFitter::getCovariance(int i, int j){
   return Cov_(i, j);
 }
 
-void TemplateFitter::setTemplate(const TSpline3* tSpline, double tMin, double tMax){
+void TemplateFitter::setTemplate(const TSpline3* tSpline, double tMin, double tMax, 
+				 int tPts){
   if(tSpline){
     tMin_ = tMin;
     tMax_ = tMax;
-    template_.resize(tPts_);
-    double stepSize = (tMax_ - tMin)/(tPts_ - 1);
-    for(unsigned int i = 0; i < tPts_; ++i){
+    template_.resize(tPts);
+    double stepSize = (tMax_ - tMin)/(template_.size() - 1);
+    for(unsigned int i = 0; i < template_.size(); ++i){
       template_[i] = tSpline->Eval(tMin_ + i * stepSize);
     }
     dTemplate_ = buildDTemplate(template_);
     d2Template_ = buildDTemplate(dTemplate_);
   }
+}
+
+void TemplateFitter::setTemplate(const std::vector<double>& temp, double tMin, double tMax){
+  assert(temp.size() > 1);
+  tMin_ = tMin;
+  tMax_ = tMax;
+  template_ = temp;
+  dTemplate_ = buildDTemplate(template_);
+  d2Template_ = buildDTemplate(dTemplate_);
 }
 	  
  
@@ -123,7 +132,7 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
 }
 
 void TemplateFitter::evalTemplates(const std::vector<double>& tGuesses){
-  double stepsPerTime = (tPts_ - 1)/(tMax_ - tMin_);
+  double stepsPerTime = (template_.size() - 1)/(tMax_ - tMin_);
   for(int i = 0; i < D_.rows(); ++i){
     for(int j = 0; j < D_.cols(); ++j){
       if((j - tGuesses[i] > tMin_) && (j - tGuesses[i]  < tMax_)){
@@ -179,7 +188,7 @@ void TemplateFitter::calculateCovarianceMatrix(){
 std::vector<double> TemplateFitter::buildDTemplate(const std::vector<double>& temp){
   assert(temp.size() > 1);
   std::vector<double> dTemplate(temp.size());
-  double stepSize = (tMax_ - tMin_) / (tPts_ - 1);
+  double stepSize = (tMax_ - tMin_) / (template_.size() - 1);
   dTemplate[0] = (temp[1] - temp[0]) / stepSize;
   for(unsigned int i = 1; i < temp.size() - 1; ++i){
     dTemplate[i] = (temp[i+1] - temp[i-1]) / (2 * stepSize);

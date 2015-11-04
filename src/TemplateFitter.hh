@@ -34,9 +34,13 @@ public:
   TemplateFitter(const TSpline3* tSpline, double tMin, double tMax, 
 		 int nPulses = 0, int nSamples = 0);
   
-  //give template spline and its limits of validity
-  void setTemplate(const TSpline3* tSpline, double tMin, double tMax);
+  //give template spline and its limits of validity 
+  //optionally give number of pts at which to evaluate it
+  void setTemplate(const TSpline3* tSpline, double tMin, double tMax, int tPts = 1000);
   
+  //give template as a vector with its time limits (time of first and last sample)
+  void setTemplate(const std::vector<double>& temp, double tMin, double tMax);
+
   //get covariance_ij. don't call this before doing a fit
   //order of parameters is {t1 ... tn, s1 ... sn, pedestal}
   double getCovariance(int i, int j);
@@ -49,7 +53,10 @@ public:
   //the numerical minimization stops
   double getAccuracy() const { return accuracy_; }
   void setAccuracy(double newAccuracy){ accuracy_ = newAccuracy;}
-  
+
+  //get number of pts in templates
+  unsigned int getNTemplatePoints() const {return template_.size(); }
+
   //fit() functions
   //n pulses is determined by timeGuesses.size() 
   //these assume a contiguous fit region
@@ -251,7 +258,6 @@ private:
   std::vector<double> dTemplate_;
   std::vector<double> d2Template_;
   double tMin_, tMax_;
-  unsigned int tPts_; //number of points in template vectors
   
   //vector of time values corresponding to each sample
   std::vector<double> sampleTimes_;
