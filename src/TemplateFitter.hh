@@ -223,7 +223,8 @@ public:
       T_.bottomRows(1)(0,i) = 1.0 / errors[i];
       pVect_(i) = trace[i] * T_.bottomRows(1)(0,i);
     }
-    
+    isFlatNoise_ = false;  
+
     wasDiscontiguous_ = true;
     return doFit(timeGuesses);       
   }   
