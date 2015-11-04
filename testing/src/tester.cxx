@@ -221,7 +221,7 @@ void displayResults(TemplateFitter& tf, TemplateFitter::Output out,
   cout << endl;
 
   //make plot
-  unique_ptr<TCanvas> c(new TCanvas("c", "c"));
+  unique_ptr<TCanvas> c(new TCanvas((title + "_canvas").c_str(), (title + "_canvas").c_str()));
   
   unique_ptr<TGraph> g(new TGraph(0));
   g->SetTitle(title.c_str());
