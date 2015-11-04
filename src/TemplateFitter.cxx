@@ -121,7 +121,7 @@ void TemplateFitter::evalTemplates(const std::vector<double>& tGuesses){
   assert(tSpline_);
   for(int i = 0; i < D_.rows(); ++i){
     for(int j = 0; j < D_.cols(); ++j){
-      if((j - tGuesses[i] > tMin_) && (j - tGuesses[i]  < tMax_)){
+      if((sampleTimes_[j] - tGuesses[i] > tMin_) && (sampleTimes_[j] - tGuesses[i]  < tMax_)){
 	T_(i, j) = tSpline_->Eval(sampleTimes_[j] - tGuesses[i])*T_.bottomRows(1)(0,j);
 	D_(i, j) = dSpline_->Eval(sampleTimes_[j] - tGuesses[i])*T_.bottomRows(1)(0,j);
 	D2_(i, j) = d2Spline_->Eval(sampleTimes_[j] - tGuesses[i])*T_.bottomRows(1)(0,j);
