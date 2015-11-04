@@ -7,7 +7,6 @@
 #pragma once
 
 #include <vector>
-#include <memory>
 #include <numeric>
 #include <cassert>
 #include <type_traits>
@@ -50,12 +49,7 @@ public:
   //the numerical minimization stops
   double getAccuracy() const { return accuracy_; }
   void setAccuracy(double newAccuracy){ accuracy_ = newAccuracy;}
-
-  //step size for evaluating numerical derivatives of the template
-  double getDEvalStep() const { return dEvalStep_; }
-  void setDEvalStep(double newStep) { dEvalStep_ = newStep; }
-
-
+  
   //fit() functions
   //n pulses is determined by timeGuesses.size() 
   //these assume a contiguous fit region
@@ -237,7 +231,7 @@ private:
 
   void calculateCovarianceMatrix();
 
-  std::unique_ptr<TSpline3> buildDSpline(const TSpline3* s);
+  std::vector<double> buildDTemplate(const std::vector<double>& temp);
   
   void resizeMatrices(int nSamples, int nPulses);
 
@@ -252,12 +246,12 @@ private:
   bool isFlatNoise_;
   bool wasDiscontiguous_;
 
-  //spline stuff
-  std::unique_ptr<TSpline3> tSpline_;
-  std::unique_ptr<TSpline3> dSpline_;
-  std::unique_ptr<TSpline3> d2Spline_;
+  //template stuff
+  std::vector<double> template_;
+  std::vector<double> dTemplate_;
+  std::vector<double> d2Template_;
   double tMin_, tMax_;
-  double dEvalStep_; //step size for evaluating numerical derivatives
+  unsigned int tPts_; //number of points in template vectors
   
   //vector of time values corresponding to each sample
   std::vector<double> sampleTimes_;

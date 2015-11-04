@@ -22,6 +22,7 @@
 #include <ctime>
 #include <string>
 #include <numeric>
+#include <memory>
 
 using namespace std;
 
