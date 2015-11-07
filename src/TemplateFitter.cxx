@@ -42,8 +42,8 @@ double TemplateFitter::getCovariance(int i, int j){
 }
 
 void TemplateFitter::setTemplate(const TSpline3* tSpline, double tMin, double tMax){
-  tSpline_.reset((TSpline3*)tSpline->Clone());
   if(tSpline){
+    tSpline_.reset((TSpline3*)tSpline->Clone());
     tMin_ = tMin;
     tMax_ = tMax;  
     dSpline_ = buildDSpline(tSpline_.get());
@@ -67,11 +67,11 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
     evalTemplates(fitOutput.times);
 
     //first solve for linear parameters based on current time guesses
-    Hess_.block(nPulses, nPulses, nPulses + 1, nPulses + 1) = T_ * T_.transpose();
+    Hess_.bottomRightCorner(nPulses + 1, nPulses + 1) = T_ * T_.transpose();
 
     b_ = T_ * pVect_;
 
-    b_ = Hess_.block(nPulses, nPulses, nPulses + 1, nPulses + 1).ldlt().solve(b_);
+    b_ = Hess_.bottomRightCorner(nPulses + 1, nPulses + 1).ldlt().solve(b_);
 
     //build deltas vector based on current parameters
     deltas_ = pVect_;
@@ -80,14 +80,14 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
     }
 
     //build time-time block of Hessian and solve for time steps
-    auto diagScales = b_.block(0,0,nPulses,1).asDiagonal();
+    auto diagScales = b_.head(nPulses).asDiagonal();
 
-    Hess_.block(0,0,nPulses,nPulses) = D_ * D_.transpose();
-    Hess_.block(0,0,nPulses,nPulses) = diagScales*Hess_.block(0,0,nPulses,nPulses)*diagScales;    
-    Hess_.block(0,0,nPulses,nPulses) -= (b_.block(0,0,nPulses,1).cwiseProduct(D2_ * deltas_)).asDiagonal();
+    Hess_.topLeftCorner(nPulses,nPulses) = D_ * D_.transpose();
+    Hess_.topLeftCorner(nPulses,nPulses) = diagScales*Hess_.topLeftCorner(nPulses,nPulses)*diagScales;    
+    Hess_.topLeftCorner(nPulses,nPulses) -= (b_.head(nPulses).cwiseProduct(D2_ * deltas_)).asDiagonal();
 
     //solve set of time steps with Newton's method
-    timeSteps_ = -1*Hess_.block(0,0,nPulses,nPulses).ldlt().solve(diagScales * D_ * deltas_);   
+    timeSteps_ = -1*Hess_.topLeftCorner(nPulses,nPulses).ldlt().solve(diagScales * D_ * deltas_);   
 
     //check for convergence, update time guesses
     ++nIterations;
@@ -148,19 +148,19 @@ bool TemplateFitter::hasConverged(){
 void TemplateFitter::calculateCovarianceMatrix(){
   const int nPulses = D_.rows();
   
-  auto diagScales = b_.block(0,0,nPulses,1).asDiagonal();  
+  auto diagScales = b_.head(nPulses).asDiagonal();  
 
   //assuming a fit was done successfully, the time-time 
   //and scale/ped - scale/ped blocks in hessian 
   //should already be in place
   
   //time - scale/ped derivatives
-  Hess_.block(0,nPulses, nPulses, nPulses + 1) = 
+  Hess_.topRightCorner(nPulses, nPulses + 1) = 
     -1 * diagScales * D_ * T_.transpose();
   
   //fill in symmetric components and invert to get covariance matrix
-  Hess_.block(nPulses, 0, nPulses + 1, nPulses) =
-    Hess_.block(0,nPulses, nPulses, nPulses + 1).transpose();
+  Hess_.bottomLeftCorner(nPulses + 1, nPulses) =
+    Hess_.topRightCorner(nPulses, nPulses + 1).transpose();
   
   Cov_ = Hess_.inverse();
 }
