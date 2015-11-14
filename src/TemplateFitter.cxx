@@ -1,7 +1,5 @@
 #include "TemplateFitter.hh"
 
-#include "TGraph.h"
-
 #include <cmath>
 
 TemplateFitter::TemplateFitter(int nPulses, int nSamples) :
@@ -16,7 +14,6 @@ TemplateFitter::TemplateFitter(const TSpline3* tSpline, double tMin, double tMax
   lastNoiseLevel_(0),
   isFlatNoise_(false),
   wasDiscontiguous_(false),
-  dEvalStep_(0.2),
   sampleTimes_(nSamples),
   pVect_(nSamples),
   T_(nPulses + 1, nSamples),
@@ -41,15 +38,31 @@ double TemplateFitter::getCovariance(int i, int j){
   return Cov_(i, j);
 }
 
-void TemplateFitter::setTemplate(const TSpline3* tSpline, double tMin, double tMax){
+void TemplateFitter::setTemplate(const TSpline3* tSpline, double tMin, double tMax, 
+				 int tPts){
   if(tSpline){
     tSpline_.reset((TSpline3*)tSpline->Clone());
     tMin_ = tMin;
-    tMax_ = tMax;  
-    dSpline_ = buildDSpline(tSpline_.get());
-    d2Spline_ = buildDSpline(dSpline_.get());
+    tMax_ = tMax;
+    template_.resize(tPts);
+    double stepSize = (tMax_ - tMin)/(template_.size() - 1);
+    for(unsigned int i = 0; i < template_.size(); ++i){
+      template_[i] = tSpline->Eval(tMin_ + i * stepSize);
+    }
+    dTemplate_ = buildDTemplate(template_);
+    d2Template_ = buildDTemplate(dTemplate_);
   }
 }
+
+void TemplateFitter::setTemplate(const std::vector<double>& temp, double tMin, double tMax){
+  assert(temp.size() > 1);
+  tMin_ = tMin;
+  tMax_ = tMax;
+  template_ = temp;
+  dTemplate_ = buildDTemplate(template_);
+  d2Template_ = buildDTemplate(dTemplate_);
+}
+	  
  
 TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGuesses){
   
@@ -82,31 +95,33 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
     //build time-time block of Hessian and solve for time steps
     auto diagScales = b_.head(nPulses).asDiagonal();
 
-    Hess_.topLeftCorner(nPulses,nPulses) = D_ * D_.transpose();
-    Hess_.topLeftCorner(nPulses,nPulses) = diagScales*Hess_.topLeftCorner(nPulses,nPulses)*diagScales;    
-    Hess_.topLeftCorner(nPulses,nPulses) -= (b_.head(nPulses).cwiseProduct(D2_ * deltas_)).asDiagonal();
+    Hess_.topLeftCorner(nPulses, nPulses) = D_ * D_.transpose();
+    Hess_.topLeftCorner(nPulses, nPulses) = diagScales*Hess_.topLeftCorner(nPulses, nPulses)*diagScales;    
+    Hess_.topLeftCorner(nPulses, nPulses) -= (b_.head(nPulses).cwiseProduct(D2_ * deltas_)).asDiagonal();
 
     //solve set of time steps with Newton's method
-    timeSteps_ = -1*Hess_.topLeftCorner(nPulses,nPulses).ldlt().solve(diagScales * D_ * deltas_);   
+    timeSteps_ = -1*Hess_.topLeftCorner(nPulses, nPulses).ldlt().solve(diagScales * D_ * deltas_);   
 
     //check for convergence, update time guesses
     ++nIterations;
-    if((nIterations != maxIterations_) && (!hasConverged())){
+    if((nIterations <= maxIterations_) && (!hasConverged())){
       for(unsigned int i = 0; i < timeGuesses.size(); ++i){
 	fitOutput.times[i] += timeSteps_(i);
       }    
     }
 
-    else if(nIterations == maxIterations_){
-      fitOutput.converged = false;
+    else if(nIterations <= maxIterations_){     
       break;
     }
 
     else{
+      fitOutput.converged = false;
       break;
     }
 
   }
+  
+  
 
   //return output
   for(int i = 0; i < nPulses; ++i){
@@ -118,17 +133,34 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
 }
 
 void TemplateFitter::evalTemplates(const std::vector<double>& tGuesses){
-  assert(tSpline_);
+  
+  double stepsPerTime = (template_.size() - 1)/(tMax_ - tMin_);
+  
   for(int i = 0; i < D_.rows(); ++i){
     for(int j = 0; j < D_.cols(); ++j){
-      if((sampleTimes_[j] - tGuesses[i] > tMin_) && (sampleTimes_[j] - tGuesses[i]  < tMax_)){
-	T_(i, j) = tSpline_->Eval(sampleTimes_[j] - tGuesses[i])*T_.bottomRows(1)(0,j);
-	D_(i, j) = dSpline_->Eval(sampleTimes_[j] - tGuesses[i])*T_.bottomRows(1)(0,j);
-	D2_(i, j) = d2Spline_->Eval(sampleTimes_[j] - tGuesses[i])*T_.bottomRows(1)(0,j);
+  
+      double t = sampleTimes_[j] - tGuesses[i];
+      if( ( t > tMin_) && ( t  < tMax_) ){
+
+	double where = (t - tMin_) * stepsPerTime;
+	int low = std::floor(where);
+	double dt = where - low;
+
+	T_(i, j) = (template_[low] + (template_[low+1] - template_[low])*dt)
+	  *T_.bottomRows(1)(0,j);
+
+	D_(i, j) = (dTemplate_[low] + (dTemplate_[low+1] - dTemplate_[low])*dt)
+	  *T_.bottomRows(1)(0,j);
+
+	D2_(i, j) = (d2Template_[low] + (d2Template_[low+1] - d2Template_[low])*dt)
+	  *T_.bottomRows(1)(0,j);
       }
+
       else{
 	T_(i, j) = 0;
+
 	D_(i, j) = 0;
+
 	D2_(i, j) = 0;
       }
     }
@@ -165,15 +197,19 @@ void TemplateFitter::calculateCovarianceMatrix(){
   Cov_ = Hess_.inverse();
 }
 
-std::unique_ptr<TSpline3> TemplateFitter::buildDSpline(const TSpline3* s){
-  TGraph cderivative(0);
-  cderivative.SetTitle("cderivative");
-  for(double t = tMin_; t < tMax_; t += dEvalStep_){
-    cderivative.SetPoint(cderivative.GetN(), t + dEvalStep_/2.0,
-			 (s->Eval(t + dEvalStep_) - s->Eval(t))/dEvalStep_);
+std::vector<double> TemplateFitter::buildDTemplate(const std::vector<double>& temp){
+  assert(temp.size() > 1);
+
+  std::vector<double> dTemplate(temp.size());
+  double stepSize = (tMax_ - tMin_) / (temp.size() - 1);
+  
+  dTemplate[0] = (temp[1] - temp[0]) / stepSize;
+  for(unsigned int i = 1; i < temp.size() - 1; ++i){
+    dTemplate[i] = (temp[i+1] - temp[i-1]) / (2 * stepSize);
   }
-  std::unique_ptr<TSpline3> dSpline(new TSpline3("dspline", &cderivative));
-  return dSpline;
+  dTemplate[temp.size() - 1] = (temp[temp.size() - 1] - temp[temp.size() - 2]) / stepSize;
+ 
+  return dTemplate;
 }
 
 void TemplateFitter::resizeMatrices(int nSamples, int nPulses){  
