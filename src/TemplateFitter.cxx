@@ -41,7 +41,6 @@ double TemplateFitter::getCovariance(int i, int j){
 void TemplateFitter::setTemplate(const TSpline3* tSpline, double tMin, double tMax, 
 				 int tPts){
   if(tSpline){
-    tSpline_.reset((TSpline3*)tSpline->Clone());
     tMin_ = tMin;
     tMax_ = tMax;
     template_.resize(tPts);
