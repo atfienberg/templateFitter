@@ -103,22 +103,24 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
 
     //check for convergence, update time guesses
     ++nIterations;
-    if((nIterations != maxIterations_) && (!hasConverged())){
+    if((nIterations <= maxIterations_) && (!hasConverged())){
       for(unsigned int i = 0; i < timeGuesses.size(); ++i){
 	fitOutput.times[i] += timeSteps_(i);
       }    
     }
 
-    else if(nIterations == maxIterations_){
-      fitOutput.converged = false;
+    else if(nIterations <= maxIterations_){     
       break;
     }
 
     else{
+      fitOutput.converged = false;
       break;
     }
 
   }
+  
+  
 
   //return output
   for(int i = 0; i < nPulses; ++i){
