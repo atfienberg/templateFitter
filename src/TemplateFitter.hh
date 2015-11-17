@@ -91,12 +91,15 @@ public:
       int oldSize = sampleTimes_.size();
       resizeMatrices(trace.size(), timeGuesses.size());
       if((trace.size() > oldSize) || (wasDiscontiguous_)){
-	std::iota(sampleTimes_.begin(),sampleTimes_.end(), 0.0);
+	std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
       }
       resized = true;
     }   
+    else if (wasDiscontiguous_){
+      std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
+    }
 
-    if((resized) || (!isFlatNoise_) || (lastNoiseLevel_ != noiseLevel)){
+    if((resized) || (!isFlatNoise_) || (lastNoiseLevel_ != noiseLevel)){ 
       T_.bottomRows(1).fill(1.0/noiseLevel);
       lastNoiseLevel_ = noiseLevel;
       isFlatNoise_ = true;    
@@ -129,8 +132,11 @@ public:
       int oldSize = sampleTimes_.size();
       resizeMatrices(trace.size(), timeGuesses.size());
       if((trace.size() > oldSize) || (wasDiscontiguous_)){
-	std::iota(sampleTimes_.begin(),sampleTimes_.end(), 0.0);
-      }
+	std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
+      } 
+    }
+    else if (wasDiscontiguous_){
+      std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
     }
         
     for(unsigned int i = 0; i < trace.size(); ++i){
