@@ -86,10 +86,7 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
     b_ = Hess_.bottomRightCorner(nPulses + 1, nPulses + 1).ldlt().solve(b_);
 
     //build deltas vector based on current parameters
-    deltas_ = pVect_;
-    for(int i = 0; i < T_.rows(); ++i){
-      deltas_ -= b_(i) * T_.row(i).transpose();
-    }
+    deltas_ = pVect_ - T_.transpose() * b_;
 
     //build time-time block of Hessian and solve for time steps
     auto diagScales = b_.head(nPulses).asDiagonal();
