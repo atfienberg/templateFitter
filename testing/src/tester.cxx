@@ -62,135 +62,21 @@ int main(){
     samples[s] +=  gRandom->Gaus(0, noise);
   }
   double timeGuess = max_element(samples.begin(), samples.end()) - samples.begin(); 
-  auto out = tf.fit(samples, timeGuess, noise);  
-  vector<UShort_t> sampleTimes(30);
-  iota(sampleTimes.begin(),sampleTimes.end(),0.0);
-  displayResults(tf, out, sampleTimes, samples, "singlePulseFlatNoise", tSpline);
+  vector<UShort_t> evenTimes(15);
+  vector<UShort_t> evenSamples(15);
+  vector<UShort_t> oddTimes(15);
+  vector<UShort_t> oddSamples(15);
+  for(int i = 0; i < 15; ++i){
+    evenTimes[i] = 2*i;
+    evenSamples[i] = samples[2*i];
+    oddTimes[i] = 2*i+1;
+    oddSamples[i] = samples[2*i+1];
+  }
+  auto out = tf.discontiguousFit(evenSamples, evenTimes, timeGuess, noise);  
+  displayResults(tf, out, evenTimes, evenSamples, "evenSamplesFit", tSpline);
+  out = tf.discontiguousFit(oddSamples, oddTimes, timeGuess, noise);  
+  displayResults(tf, out, oddTimes, oddSamples, "oddSamplesFit", tSpline);
     
-  //single pulse arbitrary noise
-  cout << "testing arbitrary sample noise, adding sqrt((s-ped)/50) worth of noise" << endl;
-  vector<double> errors(samples.size());
-  for(size_t s = 0; s < samples.size(); ++s) { 
-    if((s - time < -10) || (s - time > 90) ){
-      samples[s] = pedestal ;
-    }
-    else{
-      samples[s] = pedestal + energy * tSpline->Eval(s - time); 
-    }
-    double sampleVariance = noise*noise;
-    if(samples[s] - pedestal> 0){
-      sampleVariance += (samples[s]-pedestal)*(samples[s] - pedestal)/(50*50);
-    }
-    double sampleUncertainty = sqrt(sampleVariance);
-    samples[s] +=  gRandom->Gaus(0, sampleUncertainty);
-    errors[s] = sampleUncertainty;
-  }
-  timeGuess = max_element(samples.begin(), samples.end()) - samples.begin();
-  out = tf.fit(samples, timeGuess, errors);
-  displayResults(tf, out, sampleTimes, samples, "singlePulseArbitraryNoise", tSpline);
-
-  cout << "testing discontiguous fit regions (clipping) with flat noise: " << endl;
-  energy *= 4;
-  cout << "new energy: " << energy  << endl;
-  for(size_t s = 0; s < samples.size(); ++s) { 
-    if((s - time < -10) || (s - time > 90) ){
-      samples[s] = pedestal;
-    }
-    else{
-      samples[s] = pedestal + energy * tSpline->Eval(s - time); 
-    }
-    samples[s] +=  gRandom->Gaus(0, noise);  
-    samples[s] = samples[s] > 4096 ? 4096 : samples[s];
-  }
-
-  //find good samples (leave out anything over 4000)
-  vector<UShort_t> goodSamples;
-  vector<UShort_t> times;
-  for(size_t s = 0; s < samples.size(); ++s){
-    if(samples[s] < 4000){
-      goodSamples.push_back(samples[s]);
-      times.push_back(s);
-    }
-    else{
-      cout << "sample " << s << " clipping" << endl;
-    }
-  }
-  timeGuess = max_element(goodSamples.begin(), goodSamples.end()) - goodSamples.begin();
-  out = tf.discontiguousFit(goodSamples, times, timeGuess, noise);
-  displayResults(tf, out, times, goodSamples, "clippedFitWithFlatErrors", tSpline);
-  
-  cout << "testing clipped pulse with arbitrary errors" << endl;
-  for(size_t s = 0; s < samples.size(); ++s) { 
-    if((s - time < -10) || (s - time > 90) ){
-      samples[s] = pedestal ;
-    }
-    else{
-      samples[s] = pedestal + energy * tSpline->Eval(s - time); 
-    }
-    double sampleVariance = noise*noise;
-    if(samples[s] - pedestal> 0){
-      sampleVariance += (samples[s]-pedestal)*(samples[s] - pedestal)/(50*50);
-    }
-    double sampleUncertainty = sqrt(sampleVariance);
-    samples[s] +=  gRandom->Gaus(0, sampleUncertainty);
-    errors[s] = sampleUncertainty;
-    samples[s] = samples[s] > 4096 ? 4096 : samples[s];
-  }
-  vector<double> goodErrors;
-  goodSamples.resize(0);
-  times.resize(0);
-  for(size_t s = 0; s < samples.size(); ++s){
-    if(samples[s] < 4000){
-      goodSamples.push_back(samples[s]);
-      times.push_back(s);
-      goodErrors.push_back(errors[s]);
-    }
-    else{
-      cout << "sample " << s << " clipping, ignoring for fit" << endl;
-    }
-  }
-  timeGuess = max_element(goodSamples.begin(), goodSamples.end()) - goodSamples.begin();
-  out = tf.discontiguousFit(goodSamples, times, timeGuess, goodErrors);
-  displayResults(tf, out, times, goodSamples, "clippedWithArbitraryErrors", tSpline);
-
-  cout << "testing double pulse fit with flat errors: " << endl;
-  energy = energy / 4;
-  cout << "True E1 : " << energy << endl;
-  double energy2 =  energy * (0.5 + 0.4*(gRandom->Rndm()-0.5));
-  cout << "True E2 : " << energy2 << endl;
-  cout << "True time 1: " << time << endl;
-  double time2 = time + 2.5 + 0.5*(gRandom->Rndm() - 0.5);
-  cout << "true time 2: " << time2 << endl;
-  cout << "true pedestal : " << pedestal << endl;
-  for(std::size_t s = 0; s < samples.size(); ++s) { 
-    if((s - time2 < -10) || (s - time > 90) ){
-      samples[s] = pedestal;
-    }
-    else{
-      samples[s] = energy * tSpline->Eval(s - time) +
-	energy2*tSpline->Eval(s - time2) + pedestal; 
-    }
-    samples[s] +=  gRandom->Gaus(0, noise);
-  }    
-  double max =  max_element(samples.begin(), samples.end()) - samples.begin();
-  vector<double> tGuesses = {max - 2, max + 2};
-  out = tf.fit(samples, tGuesses, noise);
-  displayResults(tf, out, sampleTimes, samples, "doublePulseFlatErrors", tSpline);
-
-  cout << "testing three pulse fit, adding a third pulse. " << endl;
-  double energy3 = 0.25*(energy + 0.4*(gRandom->Rndm() - 0.5));
-  cout << "energy 3: " << energy3 << endl;
-  double time3 = time2 + 10 + 4*(gRandom->Rndm() - 0.5);
-  cout << "time 3: " << time3 << endl;
-  for(std::size_t s = 0; s < samples.size(); ++s){
-    if(! ((s - time3 < -10) || (s - time3 > 90) ) ){
-      samples[s] += energy3*tSpline->Eval(s - time3);
-    }
-  }
-  tGuesses = { 8, 10.5, 20.5};
-  out = tf.fit(samples, tGuesses, noise);
-  displayResults(tf, out, sampleTimes, samples, "triplePulseFlatErrors", tSpline);
-
   outf->Write();
 }
 
