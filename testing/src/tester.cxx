@@ -40,7 +40,7 @@ int main(){
   
   unique_ptr<TFile> outf(new TFile("testingOut.root","recreate"));
 
-  gRandom->SetSeed(17);
+  gRandom->SetSeed(0);
 
   //test single pulse fit with flat errors  
   cout << "testing single pulse with flat errors: " << endl;
@@ -72,11 +72,16 @@ int main(){
     oddTimes[i] = 2*i+1;
     oddSamples[i] = samples[2*i+1];
   }
-  auto out = tf.discontiguousFit(evenSamples, evenTimes, timeGuess, noise);  
-  displayResults(tf, out, evenTimes, evenSamples, "evenSamplesFit", tSpline);
-  out = tf.discontiguousFit(oddSamples, oddTimes, timeGuess, noise);  
-  displayResults(tf, out, oddTimes, oddSamples, "oddSamplesFit", tSpline);
-    
+  auto outeven = tf.discontiguousFit(evenSamples, evenTimes, timeGuess, noise);  
+  displayResults(tf, outeven, evenTimes, evenSamples, "evenSamplesFit", tSpline);
+  double var1 = tf.getCovariance(0,0);
+  auto outodd = tf.discontiguousFit(oddSamples, oddTimes, timeGuess, noise);  
+  double var2 = tf.getCovariance(0,0);
+  displayResults(tf, outodd, oddTimes, oddSamples, "oddSamplesFit", tSpline);
+  std::cout << "Average time extracted: " << 
+    (outeven.times[0]/var1 + outodd.times[0]/var2)/(1/var1 + 1/var2)
+	    << " +/- " << std::sqrt(1/(1/var1 + 1/var2)) << std::endl;
+
   outf->Write();
 }
 
