@@ -42,8 +42,8 @@ int main(){
 
   gRandom->SetSeed(0);
 
-  //test single pulse fit with flat errors  
-  cout << "testing single pulse with flat errors: " << endl;
+  //test separate even odd fit
+  cout << "testing even odd fit: " << endl;
   double time = 8 + 1*(gRandom->Rndm() - 0.5);
   cout << "true time: " << time << endl;
   double energy = 3000.0 + gRandom->Gaus(0, 0.01*3000);
@@ -51,60 +51,66 @@ int main(){
   double pedestal = 1000.0 + 100*(gRandom->Rndm() - 0.5);
   cout << "true pedestal " << pedestal << endl;
   double noise = 1.65;
-  vector<UShort_t> samples(30);
+  double evenEnergy = energy*1.05;
+  double oddEnergy = energy*0.95;
+  double evenPedestal = pedestal + 100;
+  double oddPedestal = pedestal - 100;
+  cout << "even scale : " << evenEnergy << endl;
+  cout << "odd scale : " << oddEnergy << endl;
+  cout << "even pedestal : " << evenPedestal << endl;
+  cout << "odd pedestal : " << oddPedestal << endl;
+  vector<UShort_t> samples(32);
+  vector<UShort_t> sampleTimes(32);
+  iota(sampleTimes.begin(), sampleTimes.end(), 0);
   for(size_t s = 0; s < samples.size(); ++s) { 
     if((s - time < -10) || (s - time > 90) ){
-      samples[s] = pedestal;
+      samples[s] = s % 2 == 0 ? evenPedestal : oddPedestal;
     }
     else{
-      samples[s] = pedestal + energy * tSpline->Eval(s - time); 
+      samples[s] = s % 2 == 0 ? 
+	evenPedestal + evenEnergy * tSpline->Eval(s - time) :
+	oddPedestal + oddEnergy * tSpline->Eval(s - time);
     }
     samples[s] +=  gRandom->Gaus(0, noise);
   }
-  double timeGuess = max_element(samples.begin(), samples.end()) - samples.begin(); 
-  vector<UShort_t> evenTimes(15);
-  vector<UShort_t> evenSamples(15);
-  vector<UShort_t> oddTimes(15);
-  vector<UShort_t> oddSamples(15);
-  for(int i = 0; i < 15; ++i){
-    evenTimes[i] = 2*i;
-    evenSamples[i] = samples[2*i];
-    oddTimes[i] = 2*i+1;
-    oddSamples[i] = samples[2*i+1];
-  }
-  auto outeven = tf.discontiguousFit(evenSamples, evenTimes, timeGuess, noise);  
-  displayResults(tf, outeven, evenTimes, evenSamples, "evenSamplesFit", tSpline);
-  double var1 = tf.getCovariance(0,0);
-  auto outodd = tf.discontiguousFit(oddSamples, oddTimes, timeGuess, noise);  
-  double var2 = tf.getCovariance(0,0);
-  displayResults(tf, outodd, oddTimes, oddSamples, "oddSamplesFit", tSpline);
-  std::cout << "Average time extracted: " << 
-    (outeven.times[0]/var1 + outodd.times[0]/var2)/(1/var1 + 1/var2)
-	    << " +/- " << std::sqrt(1/(1/var1 + 1/var2)) << std::endl;
+  double timeGuess = std::max_element(samples.begin(), samples.end()) - samples.begin();
+  auto out = tf.discontiguousFit(samples, sampleTimes, timeGuess, noise);
 
-  outf->Write();
+  displayResults(tf, out, sampleTimes, samples, "evenOddFit", tSpline);
+
 }
 
 void displayResults(TemplateFitter& tf, TemplateFitter::Output out, 
-		    std::vector<UShort_t> sampleTimes, std::vector<UShort_t> trace, 
+		    vector<UShort_t> sampleTimes, vector<UShort_t> trace, 
 		    string title, TSpline3* tSpline){
 
   const int nPulses = out.times.size();
+  const TemplateFitter::LinearParams evenOddParams[2] = {out.evenParams, out.oddParams};
+  string evenOddString[2] = {"even", "odd"};
+  
   //print to terminal
   cout << endl;
   for(int i = 0; i < nPulses; ++i){
     cout << "t" << i + 1 << ": " << out.times[0] << " +/- " <<
       sqrt(tf.getCovariance(i, i)) << endl;
-    cout << "scale" << i + 1 << ": " << out.scales[0] << " +/- " <<
-      sqrt(tf.getCovariance(i + nPulses, i + nPulses)) << endl;
   }
-  cout << "pedestal: " << out.pedestal << " +/- " << 
-    sqrt(tf.getCovariance(2*nPulses, 2*nPulses)) << endl;
-  cout << "chi2: " << out.chi2 << std::endl;
+  
+  for(int i = 0; i < 2; ++i){
+    for(int j = 0; j < nPulses; ++j){
+      cout << evenOddString[i] << " scale " << j << " : " <<
+	evenOddParams[i].scales[j] << " +/- " << 
+	sqrt(tf.getCovariance(nPulses + i*(nPulses+1) + j, nPulses + i*(nPulses+1) + j)) <<
+	endl;
+    }
+    int pedIndex = i == 0 ? 2*nPulses : 3*nPulses+1;
+    cout << evenOddString[i] << " pedestal: " << evenOddParams[i].pedestal << " +/- " << 
+      sqrt(tf.getCovariance(pedIndex, pedIndex)) << endl;
+  }
+  cout << "chi2: " << out.chi2 << endl;
   cout << endl;
   cout << "covariance matrix" << endl;
-  for(int i = 0; i < 2*nPulses + 1; ++i){
-    for(int j = 0; j < 2*nPulses + 1; ++j){
+  for(int i = 0; i < 3*nPulses + 2; ++i){
+    for(int j = 0; j < 3*nPulses + 2; ++j){
       cout << setw(12) << tf.getCovariance(i, j) << " ";
     }
     cout << endl;
@@ -122,12 +128,18 @@ void displayResults(TemplateFitter& tf, TemplateFitter::Output out,
 
   //room for up to three pulses
   auto templateFunction = [&] (double* x, double* p){
-    return p[6] + p[1]*tSpline->Eval(x[0] - p[0]) + p[3]*tSpline->Eval(x[0] - p[2]) +
-    (x[0] - p[4] > -10 ? p[5]*tSpline->Eval(x[0] - p[4]) : 0);
+    if( static_cast<int>(floor(x[0] + 0.5)) % 2 == 0) {
+      return p[6] + p[1]*tSpline->Eval(x[0] - p[0]) + p[3]*tSpline->Eval(x[0] - p[2]) +
+      (x[0] - p[4] > -10 ? p[5]*tSpline->Eval(x[0] - p[4]) : 0);
+    }
+    else{
+      return p[7] + p[8]*tSpline->Eval(x[0] - p[0]) + p[9]*tSpline->Eval(x[0] - p[2]) +
+      (x[0] - p[4] > -10 ? p[10]*tSpline->Eval(x[0] - p[4]) : 0);
+    }
   };
-  unique_ptr<TF1> func(new TF1("fitFunc", templateFunction, 0, 30, 7));
+  unique_ptr<TF1> func(new TF1("fitFunc", templateFunction, 0, 32, 11));
   func->SetLineColor(kBlack);
-  func->SetParameters(vector<double>(7,0).data());
+  func->SetParameters(vector<double>(11,0).data());
   
   g->SetMarkerStyle(20);
   g->Draw("ap");
@@ -137,37 +149,36 @@ void displayResults(TemplateFitter& tf, TemplateFitter::Output out,
 
   double yMin = g->GetYaxis()->GetXmin();
   double yMax = g->GetYaxis()->GetXmax();
-  std::unique_ptr<TPaveText> txtbox(new TPaveText(15, yMin + (yMax - yMin)*0.9, 
+  unique_ptr<TPaveText> txtbox(new TPaveText(15, yMin + (yMax - yMin)*0.9, 
 						  29, yMin + (yMax - yMin) * 0.5));
   txtbox->SetFillColor(kWhite);
-  func->SetParameter(6, out.pedestal);
+  func->SetParameter(6, evenOddParams[0].pedestal);
+  func->SetParameter(7, evenOddParams[1].pedestal);
   for(int i = 0; i < nPulses; ++i){
     func->SetParameter(2*i, out.times[i]);
     txtbox->AddText(Form("t_{%i}: %.3f #pm %.3f", i+1, 
 			 out.times[i], sqrt(tf.getCovariance(i, i))));
-    func->SetParameter(2*i + 1, out.scales[i]);
-    txtbox->AddText(Form("E_{%i}: %.0f #pm %.0f", i + 1,
-			 out.scales[i], sqrt(tf.getCovariance(nPulses + i, nPulses + i))));    
   }
-  txtbox->AddText(Form("pedestal: %.0f #pm %.1f", 
-		       out.pedestal, sqrt(tf.getCovariance(2*nPulses, 2*nPulses))));
-  txtbox->AddText(Form("#chi^{2} / NDF : %.2f", out.chi2));
-  
-  std::vector<unique_ptr<TF1>> components;
-  if(nPulses > 1){
-    int colors[3] = {kRed, kBlue, kMagenta + 2};
-    for(int i = 0; i < nPulses; ++i){
-      components.emplace_back(new TF1("fitFunc", templateFunction, 0, 30, 7));
-      components.back()->SetParameters(vector<double>(7,0).data());
-      components.back()->SetParameter(6, out.pedestal);
-      components.back()->SetParameter(2*i, out.times[i]);
-      components.back()->SetParameter(2*i + 1, out.scales[i]);
-      components.back()->SetLineColor(colors[i]);
-      components.back()->SetNpx(1000);
-      components.back()->Draw("same");
+  for(int i = 0; i < 2; ++i){
+    for(int j = 0; j < nPulses; ++j){
+      func->SetParameter(i == 0 ? 2*j + 1 : 8 + j, 
+			 evenOddParams[i].scales[j]);
+      txtbox->AddText(Form("%s E_{%i}: %.0f #pm %.0f", 
+			   evenOddString[i].c_str(),
+			   i + 1,
+			   evenOddParams[i].scales[j], 
+			   sqrt(tf.getCovariance(nPulses + i*(nPulses+1) + j, 
+						 nPulses + i*(nPulses+1) + j))));
     }
+    int pedIndex = i == 0 ? 2*nPulses : 3*nPulses+1;
+    txtbox->AddText(Form("%s pedestal: %.0f #pm %.1f", 
+			 evenOddString[i].c_str(),
+			 evenOddParams[i].pedestal, 
+			 sqrt(tf.getCovariance(pedIndex, pedIndex))));
   }
-      
+
+  txtbox->AddText(Form("#chi^{2} / NDF : %.2f", out.chi2));
+        
   func->SetNpx(1000);
   func->Draw("same");
   txtbox->Draw("same");
