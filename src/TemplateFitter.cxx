@@ -1,7 +1,5 @@
 #include "TemplateFitter.hh"
 
-#include <cmath>
-
 TemplateFitter::TemplateFitter() :
   TemplateFitter(NULL, 0, 0)
 {}
@@ -94,15 +92,16 @@ TemplateFitter::Output TemplateFitter::doFit(const std::vector<double>& timeGues
       m.Hess.topLeftCorner(nPulses, nPulses) -= (m.b.head(nPulses).cwiseProduct(m.D2 * m.deltas)).asDiagonal();
 
       timeSteps_ += diagScales * m.D * m.deltas;
+
     }
-    
+
     totalHess_.topLeftCorner(nPulses, nPulses) = 
-      matrices_[1].Hess.topLeftCorner(nPulses, nPulses) +  
+      matrices_[0].Hess.topLeftCorner(nPulses, nPulses) +  
       matrices_[1].Hess.topLeftCorner(nPulses, nPulses); 
     
     //solve set of time steps with Newton's method
     timeSteps_ = -1*totalHess_.topLeftCorner(nPulses, nPulses).ldlt().solve(timeSteps_);   
-
+   
     //check for convergence, update time guesses     
     ++nIterations;
     if((nIterations <= maxIterations_) && (!hasConverged())){
@@ -192,9 +191,9 @@ void TemplateFitter::calculateCovarianceMatrix(){
   
   //fill in diagonal blocks
   totalHess_.block(nPulses, nPulses, nPulses + 1, nPulses + 1) = 
-    matrices_[0].Hess.block(nPulses, nPulses, nPulses + 1, nPulses + 1);
+    matrices_[0].Hess.bottomRightCorner(nPulses + 1, nPulses + 1);
   totalHess_.block(2*nPulses + 1, 2*nPulses + 1, nPulses + 1, nPulses + 1) = 
-    matrices_[1].Hess.block(nPulses, nPulses, nPulses + 1, nPulses + 1);
+    matrices_[1].Hess.bottomRightCorner(nPulses + 1, nPulses + 1);
 
   //fill in all nonzero off diagonal blocks
   for(int i = 0; i < 2; ++i){
@@ -238,6 +237,7 @@ bool TemplateFitter::resizeMatrices(int nPulses){
 	m.D2.resize(nPulses, nSamples);
 	m.Hess.resize(2*nPulses + 1, 2*nPulses + 1);
 	resized = true;
+	
     }
   }
 

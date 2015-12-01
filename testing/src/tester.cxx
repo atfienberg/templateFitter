@@ -74,9 +74,51 @@ int main(){
     samples[s] +=  gRandom->Gaus(0, noise);
   }
   double timeGuess = std::max_element(samples.begin(), samples.end()) - samples.begin();
-  auto out = tf.discontiguousFit(samples, sampleTimes, timeGuess, noise);
+  auto out = tf.fit(samples, timeGuess, noise);
 
   displayResults(tf, out, sampleTimes, samples, "evenOddFit", tSpline);
+  
+  //different noise on even and odd samples 
+  auto flatErrorSamples = samples;
+  vector<double> errors(samples.size());
+  for(int i = 0; i < 32; ++i){
+    errors[i] = i % 2 == 0 ? 3 : 1;
+  }
+  for(size_t s = 0; s < samples.size(); ++s) { 
+    if((s - time < -10) || (s - time > 90) ){
+      samples[s] = s % 2 == 0 ? evenPedestal : oddPedestal;
+    }
+    else{
+      samples[s] = s % 2 == 0 ? 
+	evenPedestal + evenEnergy * tSpline->Eval(s - time) :
+	oddPedestal + oddEnergy * tSpline->Eval(s - time);
+    }
+    samples[s] +=  gRandom->Gaus(0, errors[s]);
+  }
+  cout << "try arbitrary errors, in this case different errors on even and odd samples" << endl;
+  out = tf.fit(samples, timeGuess, errors);
+  displayResults(tf, out, sampleTimes, samples, "evenOddFitArbErrors", tSpline);
+  
+  //try a double fit
+  cout << "try double fit with flat errors: " << endl;
+  double time2 = time + 6 + 2*(1-gRandom->Rndm());
+  cout << "time2: " << time2 << endl;
+  double energy2 = energy/2.0 + 500*(1-gRandom->Rndm());
+  double evenEnergy2 = energy2*1.05;
+  double oddEnergy2 = energy2*0.95;
+  cout << "even scale 2: " << evenEnergy2 << endl;
+  cout << "odd scale 2: " << oddEnergy2 << endl;
+  samples = flatErrorSamples;
+  for(size_t s = 0; s < samples.size(); ++s) { 
+    if(! ((s - time2 < -10) || (s - time2 > 90) )){
+      samples[s] += s % 2 == 0 ? 
+	evenEnergy2 * tSpline->Eval(s - time2) :
+	oddEnergy2 * tSpline->Eval(s - time2);
+    }
+  }
+  out = tf.fit(samples, vector<double>{8, 14}, noise);
+  displayResults(tf, out, sampleTimes, samples, "evenOddFitDouble", tSpline);
+  
 
 }
 
@@ -149,8 +191,8 @@ void displayResults(TemplateFitter& tf, TemplateFitter::Output out,
 
   double yMin = g->GetYaxis()->GetXmin();
   double yMax = g->GetYaxis()->GetXmax();
-  unique_ptr<TPaveText> txtbox(new TPaveText(15, yMin + (yMax - yMin)*0.9, 
-						  29, yMin + (yMax - yMin) * 0.5));
+  unique_ptr<TPaveText> txtbox(new TPaveText(18, yMin + (yMax - yMin)*0.9, 
+						  31, yMin + (yMax - yMin) * 0.5));
   txtbox->SetFillColor(kWhite);
   func->SetParameter(6, evenOddParams[0].pedestal);
   func->SetParameter(7, evenOddParams[1].pedestal);
@@ -165,7 +207,7 @@ void displayResults(TemplateFitter& tf, TemplateFitter::Output out,
 			 evenOddParams[i].scales[j]);
       txtbox->AddText(Form("%s E_{%i}: %.0f #pm %.0f", 
 			   evenOddString[i].c_str(),
-			   i + 1,
+			   j + 1,
 			   evenOddParams[i].scales[j], 
 			   sqrt(tf.getCovariance(nPulses + i*(nPulses+1) + j, 
 						 nPulses + i*(nPulses+1) + j))));

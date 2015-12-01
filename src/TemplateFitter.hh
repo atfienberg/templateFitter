@@ -61,11 +61,25 @@ public:
   //get number of pts in templates
   unsigned int getNTemplatePoints() const {return template_.size(); }
 
+  //fit for contiguous samples
+  template<typename sampleType, typename timeType = double, typename errorType = double>
+  Output fit(const std::vector<sampleType>& trace, 
+	     timeType timeGuesses,
+	     errorType error = 1.0
+	     ){
+    
+    std::vector<int> sampleTimes(trace.size());
+    std::iota(sampleTimes.begin(), sampleTimes.end(), 0);
+
+    return discontiguousFit(trace, sampleTimes, timeGuesses, error);    
+    
+  }
+
 
   //discontiguousFit() functions for fitting discontiguous regions
   //these are mainly useful for clipped pulses
-  //you must pass in vector of sample times along with vector of sample values
-  
+  //you must pass in vector of sample times along with vector of sample values 
+
   //single pulse version
   template<typename sampleType, typename timeType, typename errorType = double>
   Output discontiguousFit(const std::vector<sampleType>& trace, 
@@ -166,7 +180,7 @@ public:
       nextIndex[evenOrOdd]++;
     }    
     isFlatNoise_ = false;
-        
+    
     wasDiscontiguous_ = true;
     return doFit(timeGuesses);       
   }   
