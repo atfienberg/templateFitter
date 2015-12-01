@@ -171,11 +171,13 @@ void displayResults(TemplateFitter& tf, TemplateFitter::Output out,
   //room for up to three pulses
   auto templateFunction = [&] (double* x, double* p){
     if( static_cast<int>(floor(x[0] + 0.5)) % 2 == 0) {
-      return p[6] + p[1]*tSpline->Eval(x[0] - p[0]) + p[3]*tSpline->Eval(x[0] - p[2]) +
+      return (x[0] - p[0] > -10 ? p[6] + p[1]*tSpline->Eval(x[0] - p[0]) : 0 ) + 
+      (x[0] - p[2] > -10 ? p[3]*tSpline->Eval(x[0] - p[2]) : 0) +
       (x[0] - p[4] > -10 ? p[5]*tSpline->Eval(x[0] - p[4]) : 0);
     }
     else{
-      return p[7] + p[8]*tSpline->Eval(x[0] - p[0]) + p[9]*tSpline->Eval(x[0] - p[2]) +
+      return (x[0] - p[0] > -10 ? p[7] + p[8]*tSpline->Eval(x[0] - p[0]) : 0) +
+      (x[0] - p[2] > -10 ? p[9]*tSpline->Eval(x[0] - p[2]) : 0) +
       (x[0] - p[4] > -10 ? p[10]*tSpline->Eval(x[0] - p[4]) : 0);
     }
   };
