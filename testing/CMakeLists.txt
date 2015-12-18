@@ -2,15 +2,17 @@ cmake_minimum_required (VERSION 2.6)
 
 project (testTemplateFitter)
 
-execute_process(COMMAND root-config --cflags OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE ROOTCFLAGS)
-execute_process(COMMAND root-config --libs OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE ROOT_LIBRARIES)
+find_package(ROOT REQUIRED)
+set(EIGEN_DIR /usr/local/include/Eigen3)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O2 -I/usr/include/eigen3 -std=c++11 ${ROOTCFLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 file(GLOB sources ${PROJECT_SOURCE_DIR}/../src/*.cxx)
 file(GLOB headers ${PROJECT_SOURCE_DIR}/../src/*.hh)
 
 include_directories(${PROJECT_SOURCE_DIR}/../src/)
+include_directories(${ROOT_INCLUDE_DIRS}) 
+include_directories(${EIGEN_DIR})
 
 add_executable (timer ${PROJECT_SOURCE_DIR}/src/timer.cxx ${sources} ${headers})
 
