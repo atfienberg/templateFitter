@@ -1,9 +1,9 @@
 cmake_minimum_required (VERSION 2.6)
 
 project (testTemplateFitter)
-
+set(CMAKE_MODULE_PATH /home/newg2/Packages/root/etc/cmake/)
 find_package(ROOT REQUIRED)
-set(EIGEN_DIR /usr/local/include/Eigen3)
+set(EIGEN_DIR /usr/include/eigen3)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
