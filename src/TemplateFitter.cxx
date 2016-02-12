@@ -43,7 +43,7 @@ void TemplateFitter::setTemplate(const TSpline3* tSpline, double tMin,
     tMax_ = tMax;
     template_.resize(tPts);
     double stepSize = (tMax_ - tMin) / (template_.size() - 1);
-    for (unsigned int i = 0; i < template_.size(); ++i) {
+    for (std::size_t i = 0; i < template_.size(); ++i) {
       template_[i] = tSpline->Eval(tMin_ + i * stepSize);
     }
     dTemplate_ = buildDTemplate(template_);
@@ -62,13 +62,13 @@ void TemplateFitter::setTemplate(const std::vector<double>& temp, double tMin,
 }
 
 TemplateFitter::Output TemplateFitter::doFit(
-	const std::vector<double>& timeGuesses) {
+    const std::vector<double>& timeGuesses) {
   const int nPulses = D_.rows();
   const int nSamples = D_.cols();
 
   covReady_ = false;
 
-  unsigned int nIterations = 0;
+  std::size_t nIterations = 0;
 
   Output fitOutput = {timeGuesses, std::vector<double>(nPulses), 0, 0, true};
 
@@ -103,7 +103,7 @@ TemplateFitter::Output TemplateFitter::doFit(
     // check for convergence, update time guesses
     ++nIterations;
     if ((nIterations <= maxIterations_) && (!hasConverged())) {
-      for (unsigned int i = 0; i < timeGuesses.size(); ++i) {
+      for (std::size_t i = 0; i < timeGuesses.size(); ++i) {
         fitOutput.times[i] += timeSteps_(i);
       }
     }
@@ -201,7 +201,7 @@ std::vector<double> TemplateFitter::buildDTemplate(
   double stepSize = (tMax_ - tMin_) / (temp.size() - 1);
 
   dTemplate[0] = (temp[1] - temp[0]) / stepSize;
-  for (unsigned int i = 1; i < temp.size() - 1; ++i) {
+  for (std::size_t i = 1; i < temp.size() - 1; ++i) {
     dTemplate[i] = (temp[i + 1] - temp[i - 1]) / (2 * stepSize);
   }
   dTemplate[temp.size() - 1] =
