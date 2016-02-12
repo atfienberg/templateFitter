@@ -5,10 +5,29 @@
 #include "TRandom.h"
 #include <algorithm>
 #include <cmath>
-#include <ctime>
+#include <thread>
+#include <chrono>
 #include <iostream>
 
+typedef struct{
+  double time;
+  double energy;
+  double chi2;
+} result;
+
 using namespace std;
+
+namespace {
+  vector<vector<TemplateFitter::Output>> outs;
+}
+
+void fit(TemplateFitter tf, vector<UShort_t> samples, 
+  double timeGuess, double noise, vector<TemplateFitter::Output>& out_vect){
+  out_vect.resize(100000);
+  for(int i = 0; i < 100000; ++i){
+    out_vect[i] = tf.fit(samples, timeGuess, noise);
+  }
+}
 
 int main(){
 
@@ -28,7 +47,7 @@ int main(){
 
   double noise = 1.65;
   vector<UShort_t> samples(100);
-  for(std::size_t s = 0; s < 100; ++s) { 
+  for(size_t s = 0; s < 100; ++s) { 
     if((s - time < -10) || (s - time > 90) ){
       samples[s] = 0;
     }
@@ -37,32 +56,48 @@ int main(){
     }
     samples[s] +=  gRandom->Gaus(0, noise) + pedestal;
   }
-  auto maxiter = std::max_element(samples.begin(), samples.end());
+  auto maxiter = max_element(samples.begin(), samples.end());
   int fitStart = maxiter - 5 - samples.begin();
-  std::rotate(samples.begin(), maxiter-5, samples.end());
+  rotate(samples.begin(), maxiter-5, samples.end());
   samples.resize(30);
   
   double timeGuess = 5;
   
-  std::vector<double> errorvect(30, noise);
-  TemplateFitter::Output out;
-  auto t1 = clock();
-  for(int i = 0; i < 1000000; ++i){
-    out = tf.fit(samples, timeGuess , noise);
+  vector<double> errorvect(30, noise);
+  // TemplateFitter::Output out;
+  auto t1 = chrono::high_resolution_clock::now();
+
+  vector<thread> threads;
+
+  outs.resize(8);
+  for(int i = 0; i < 8; ++i){
+    threads.push_back(thread(fit, tf, samples, timeGuess, noise, ref(outs[i])));
   }
-  std::cout << 1000000/(float(clock() - t1)/CLOCKS_PER_SEC) << " fits per sec " << std::endl;
-  std::cout << " t = " << out.times[0] + fitStart << " +/- " << std::sqrt(tf.getCovariance(0,0)) << std::endl;
-  std::cout << " s = " << out.scales[0] << " +/- " << std::sqrt(tf.getCovariance(1,1)) << std::endl;
-  std::cout << " p = " << out.pedestal << " +/- " << std::sqrt(tf.getCovariance(2,2)) << std::endl;
-  std::cout << " chi2: " << out.chi2 << std::endl;
+
+  for(auto& t: threads){
+    t.join();
+  }
+  auto t2 = chrono::high_resolution_clock::now();
+  cout << 800000/chrono::duration<double>(t2-t1).count() << " fits per sec " << endl;
+
+  auto out = outs.back().back();
+
+  cout << "t: " << out.times[0] + fitStart << endl;
+  cout << "scale: " << out.scales[0] << endl;
+  cout << "chi2: " << out.chi2 << endl;
+
+  // cout << " t = " << out.times[0] + fitStart << " +/- " << sqrt(tf.getCovariance(0,0)) << endl;
+  // cout << " s = " << out.scales[0] << " +/- " << sqrt(tf.getCovariance(1,1)) << endl;
+  // cout << " p = " << out.pedestal << " +/- " << sqrt(tf.getCovariance(2,2)) << endl;
+  // cout << " chi2: " << out.chi2 << endl;
   
-  std::cout << "cov" <<std::endl;
-  for(int i = 0; i < 3; ++i){
-    for(int j = 0; j < 3; ++j){
-      std::cout << tf.getCovariance(i, j) << " ";
-    }
-    std::cout << std::endl;
-  }
+  // cout << "cov" <<endl;
+  // for(int i = 0; i < 3; ++i){
+  //   for(int j = 0; j < 3; ++j){
+  //     cout << tf.getCovariance(i, j) << " ";
+  //   }
+  //   cout << endl;
+  // }
     
 
 }

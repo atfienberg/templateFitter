@@ -5,7 +5,7 @@ project (testTemplateFitter)
 find_package(ROOT REQUIRED)
 set(EIGEN_DIR /usr/local/include/Eigen3)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra")
 
 file(GLOB sources ${PROJECT_SOURCE_DIR}/../src/*.cxx)
 file(GLOB headers ${PROJECT_SOURCE_DIR}/../src/*.hh)

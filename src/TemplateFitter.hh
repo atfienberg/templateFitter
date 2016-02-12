@@ -47,8 +47,8 @@ class TemplateFitter {
   double getCovariance(int i, int j);
 
   // max number of iterations before giving up
-  unsigned int getMaxIterations() const { return maxIterations_; }
-  void setMaxIterations(unsigned int maxIters) { maxIterations_ = maxIters; }
+  std::size_t getMaxIterations() const { return maxIterations_; }
+  void setMaxIterations(std::size_t maxIters) { maxIterations_ = maxIters; }
 
   // target accuracy. When max step size is less than this,
   // the numerical minimization stops
@@ -56,7 +56,7 @@ class TemplateFitter {
   void setAccuracy(double newAccuracy) { accuracy_ = newAccuracy; }
 
   // get number of pts in templates
-  unsigned int getNTemplatePoints() const { return template_.size(); }
+  std::size_t getNTemplatePoints() const { return template_.size(); }
 
   // fit() functions
   // n pulses is determined by timeGuesses.size()
@@ -84,8 +84,9 @@ class TemplateFitter {
 
     bool resized = false;
 
-    if ((trace.size() != pVect_.rows()) || (timeGuesses.size() != D_.rows())) {
-      int oldSize = sampleTimes_.size();
+    if ((trace.size() != static_cast<std::size_t>(pVect_.rows())) ||
+        (timeGuesses.size() != static_cast<std::size_t>(D_.rows()))) {
+      std::size_t oldSize = sampleTimes_.size();
       resizeMatrices(trace.size(), timeGuesses.size());
       if ((trace.size() > oldSize) || (wasDiscontiguous_)) {
         std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
@@ -101,7 +102,7 @@ class TemplateFitter {
       isFlatNoise_ = true;
     }
 
-    for (int i = 0; i < trace.size(); ++i) {
+    for (std::size_t i = 0; i < trace.size(); ++i) {
       pVect_(i) = trace[i] * T_.bottomRows(1)(0, i);
     }
 
@@ -123,8 +124,9 @@ class TemplateFitter {
                   "errors must be vector of numbers!");
     assert(errors.size() == trace.size());
 
-    if ((trace.size() != pVect_.rows()) || (timeGuesses.size() != D_.rows())) {
-      int oldSize = sampleTimes_.size();
+    if ((trace.size() != static_cast<std::size_t>(pVect_.rows())) ||
+        (timeGuesses.size() != static_cast<std::size_t>(D_.rows()))) {
+      std::size_t oldSize = sampleTimes_.size();
       resizeMatrices(trace.size(), timeGuesses.size());
       if ((trace.size() > oldSize) || (wasDiscontiguous_)) {
         std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
@@ -133,7 +135,7 @@ class TemplateFitter {
       std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
     }
 
-    for (unsigned int i = 0; i < trace.size(); ++i) {
+    for (std::size_t i = 0; i < trace.size(); ++i) {
       T_.bottomRows(1)(0, i) = 1.0 / errors[i];
       pVect_(i) = trace[i] * T_.bottomRows(1)(0, i);
     }
@@ -173,7 +175,8 @@ class TemplateFitter {
 
     bool resized = false;
 
-    if ((trace.size() != pVect_.rows()) || (timeGuesses.size() != D_.rows())) {
+    if ((trace.size() != static_cast<std::size_t>(pVect_.rows())) ||
+        (timeGuesses.size() != static_cast<std::size_t>(D_.rows()))) {
       resizeMatrices(trace.size(), timeGuesses.size());
       resized = true;
     }
@@ -186,7 +189,7 @@ class TemplateFitter {
       isFlatNoise_ = true;
     }
 
-    for (int i = 0; i < trace.size(); ++i) {
+    for (std::size_t i = 0; i < trace.size(); ++i) {
       pVect_(i) = trace[i] * T_.bottomRows(1)(0, i);
     }
 
@@ -209,13 +212,14 @@ class TemplateFitter {
     assert(trace.size() == sampleTimes.size());
     assert(errors.size() == trace.size());
 
-    if ((trace.size() != pVect_.rows()) || (timeGuesses.size() != D_.rows())) {
+    if ((trace.size() != static_cast<std::size_t>(pVect_.rows())) ||
+        (timeGuesses.size() != static_cast<std::size_t>(D_.rows()))) {
       resizeMatrices(trace.size(), timeGuesses.size());
     }
 
     std::copy(sampleTimes.begin(), sampleTimes.end(), sampleTimes_.begin());
 
-    for (unsigned int i = 0; i < trace.size(); ++i) {
+    for (std::size_t i = 0; i < trace.size(); ++i) {
       T_.bottomRows(1)(0, i) = 1.0 / errors[i];
       pVect_(i) = trace[i] * T_.bottomRows(1)(0, i);
     }
@@ -241,7 +245,7 @@ class TemplateFitter {
   // how small largest time step has to go before stopping minimization
   double accuracy_;
   // max number of iterations
-  unsigned int maxIterations_;
+  std::size_t maxIterations_;
   // whether covariance matrix is ready
   bool covReady_;
 
