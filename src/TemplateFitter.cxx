@@ -1,30 +1,16 @@
 #include "TemplateFitter.hh"
 
-#include <cmath>
-
-TemplateFitter::TemplateFitter(int nPulses, int nSamples)
-    : TemplateFitter(NULL, 0, 0, nPulses, nSamples) {}
+TemplateFitter::TemplateFitter() : TemplateFitter(NULL, 0, 0) {}
 
 TemplateFitter::TemplateFitter(const TSpline3* tSpline, double tMin,
-                               double tMax, int nPulses, int nSamples)
+                               double tMax)
     : accuracy_(1e-4),
       maxIterations_(200),
       covReady_(false),
       lastNoiseLevel_(0),
       isFlatNoise_(false),
-      wasDiscontiguous_(false),
-      sampleTimes_(nSamples),
-      pVect_(nSamples),
-      T_(nPulses + 1, nSamples),
-      b_(nPulses + 1),
-      deltas_(nSamples),
-      D_(nPulses, nSamples),
-      D2_(nPulses, nSamples),
-      Hess_(2 * nPulses + 1, 2 * nPulses + 1),
-      Cov_(2 * nPulses + 1, 2 * nPulses + 1),
-      timeSteps_(nPulses) {
+      matrices_() {
   setTemplate(tSpline, tMin, tMax);
-  std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
 }
 
 double TemplateFitter::getCovariance(int i, int j) {
@@ -63,42 +49,58 @@ void TemplateFitter::setTemplate(const std::vector<double>& temp, double tMin,
 
 TemplateFitter::Output TemplateFitter::doFit(
     const std::vector<double>& timeGuesses) {
-  const int nPulses = D_.rows();
-  const int nSamples = D_.cols();
+  const int nPulses = matrices_[0].D.rows();
+  const int nSamples = matrices_[0].T.cols() + matrices_[1].T.cols();
 
   covReady_ = false;
 
-  std::size_t nIterations = 0;
+  unsigned int nIterations = 0;
 
-  Output fitOutput = {timeGuesses, std::vector<double>(nPulses), 0, 0, true};
+  Output fitOutput = {timeGuesses,
+                      {std::vector<double>(nPulses), 0},
+                      {std::vector<double>(nPulses), 0},
+                      0,
+                      true};
+
+  totalHess_.fill(0);
 
   while (true) {
     evalTemplates(fitOutput.times);
+    // solve for derivatives and linear parameters
+    // for even and odd samples
+    timeSteps_.fill(0);
+    for (fitMatrices& m : matrices_) {
+      m.Hess.bottomRightCorner(nPulses + 1, nPulses + 1) =
+          m.T * m.T.transpose();
 
-    // first solve for linear parameters based on current time guesses
-    Hess_.bottomRightCorner(nPulses + 1, nPulses + 1) = T_ * T_.transpose();
+      m.b = m.T * m.pVect;
 
-    b_ = T_ * pVect_;
+      m.b =
+          m.Hess.bottomRightCorner(nPulses + 1, nPulses + 1).ldlt().solve(m.b);
 
-    b_ = Hess_.bottomRightCorner(nPulses + 1, nPulses + 1).ldlt().solve(b_);
+      // build deltas vector based on current parameters
+      m.deltas = m.pVect - m.T.transpose() * m.b;
 
-    // build deltas vector based on current parameters
-    deltas_ = pVect_ - T_.transpose() * b_;
+      // build time-time block of Hessian and solve for time steps
+      auto diagScales = m.b.head(nPulses).asDiagonal();
 
-    // build time-time block of Hessian and solve for time steps
-    auto diagScales = b_.head(nPulses).asDiagonal();
+      m.Hess.topLeftCorner(nPulses, nPulses) = m.D * m.D.transpose();
+      m.Hess.topLeftCorner(nPulses, nPulses) =
+          diagScales * m.Hess.topLeftCorner(nPulses, nPulses) * diagScales;
+      m.Hess.topLeftCorner(nPulses, nPulses) -=
+          (m.b.head(nPulses).cwiseProduct(m.D2 * m.deltas)).asDiagonal();
 
-    Hess_.topLeftCorner(nPulses, nPulses) = D_ * D_.transpose();
-    Hess_.topLeftCorner(nPulses, nPulses) =
-        diagScales * Hess_.topLeftCorner(nPulses, nPulses) * diagScales;
-    Hess_.topLeftCorner(nPulses, nPulses) -=
-        (b_.head(nPulses).cwiseProduct(D2_ * deltas_)).asDiagonal();
+      timeSteps_ += diagScales * m.D * m.deltas;
+    }
+
+    totalHess_.topLeftCorner(nPulses, nPulses) =
+        matrices_[0].Hess.topLeftCorner(nPulses, nPulses) +
+        matrices_[1].Hess.topLeftCorner(nPulses, nPulses);
 
     // solve set of time steps with Newton's method
-    timeSteps_ = -1 *
-                 Hess_.topLeftCorner(nPulses, nPulses)
-                     .ldlt()
-                     .solve(diagScales * D_ * deltas_);
+    timeSteps_ =
+        -1 *
+        totalHess_.topLeftCorner(nPulses, nPulses).ldlt().solve(timeSteps_);
 
     // check for convergence, update time guesses
     ++nIterations;
@@ -120,44 +122,52 @@ TemplateFitter::Output TemplateFitter::doFit(
 
   // return output
   for (int i = 0; i < nPulses; ++i) {
-    fitOutput.scales[i] = b_(i);
+    fitOutput.evenParams.scales[i] = matrices_[0].b(i);
+    fitOutput.oddParams.scales[i] = matrices_[1].b(i);
   }
-  fitOutput.pedestal = b_(nPulses);
-  fitOutput.chi2 =
-      (deltas_.transpose() * deltas_)(0, 0) / (nSamples - 2 * nPulses - 1);
+  fitOutput.evenParams.pedestal = matrices_[0].b(nPulses);
+  fitOutput.oddParams.pedestal = matrices_[1].b(nPulses);
+
+  for (const auto& m : matrices_) {
+    fitOutput.chi2 += (m.deltas.transpose() * m.deltas)(0, 0);
+  }
+  fitOutput.chi2 /= (nSamples - (3 * nPulses + 2));
+
   return fitOutput;
 }
 
 void TemplateFitter::evalTemplates(const std::vector<double>& tGuesses) {
   double stepsPerTime = (template_.size() - 1) / (tMax_ - tMin_);
 
-  for (int i = 0; i < D_.rows(); ++i) {
-    for (int j = 0; j < D_.cols(); ++j) {
-      double t = sampleTimes_[j] - tGuesses[i];
-      if ((t > tMin_) && (t < tMax_)) {
-        double where = (t - tMin_) * stepsPerTime;
-        int low = std::floor(where);
-        double dt = where - low;
+  for (fitMatrices& m : matrices_) {
+    for (int i = 0; i < m.D.rows(); ++i) {
+      for (int j = 0; j < m.D.cols(); ++j) {
+        double t = m.sampleTimes[j] - tGuesses[i];
+        if ((t > tMin_) && (t < tMax_)) {
+          double where = (t - tMin_) * stepsPerTime;
+          int low = std::floor(where);
+          double dt = where - low;
 
-        T_(i, j) =
-            (template_[low] + (template_[low + 1] - template_[low]) * dt) *
-            T_.bottomRows(1)(0, j);
+          m.T(i, j) =
+              (template_[low] + (template_[low + 1] - template_[low]) * dt) *
+              m.T.bottomRows(1)(0, j);
 
-        D_(i, j) =
-            (dTemplate_[low] + (dTemplate_[low + 1] - dTemplate_[low]) * dt) *
-            T_.bottomRows(1)(0, j);
+          m.D(i, j) =
+              (dTemplate_[low] + (dTemplate_[low + 1] - dTemplate_[low]) * dt) *
+              m.T.bottomRows(1)(0, j);
 
-        D2_(i, j) = (d2Template_[low] +
-                     (d2Template_[low + 1] - d2Template_[low]) * dt) *
-                    T_.bottomRows(1)(0, j);
-      }
+          m.D2(i, j) = (d2Template_[low] +
+                        (d2Template_[low + 1] - d2Template_[low]) * dt) *
+                       m.T.bottomRows(1)(0, j);
+        }
 
-      else {
-        T_(i, j) = 0;
+        else {
+          m.T(i, j) = 0;
 
-        D_(i, j) = 0;
+          m.D(i, j) = 0;
 
-        D2_(i, j) = 0;
+          m.D2(i, j) = 0;
+        }
       }
     }
   }
@@ -174,23 +184,25 @@ bool TemplateFitter::hasConverged() {
 }
 
 void TemplateFitter::calculateCovarianceMatrix() {
-  const int nPulses = D_.rows();
+  const int nPulses = matrices_[0].D.rows();
 
-  auto diagScales = b_.head(nPulses).asDiagonal();
+  // fill in diagonal blocks
+  totalHess_.block(nPulses, nPulses, nPulses + 1, nPulses + 1) =
+      matrices_[0].Hess.bottomRightCorner(nPulses + 1, nPulses + 1);
+  totalHess_.block(2 * nPulses + 1, 2 * nPulses + 1, nPulses + 1, nPulses + 1) =
+      matrices_[1].Hess.bottomRightCorner(nPulses + 1, nPulses + 1);
 
-  // assuming a fit was done successfully, the time-time
-  // and scale/ped - scale/ped blocks in hessian
-  // should already be in place
+  // fill in all nonzero off diagonal blocks
+  for (int i = 0; i < 2; ++i) {
+    auto diagScales = matrices_[i].b.head(nPulses).asDiagonal();
 
-  // time - scale/ped derivatives
-  Hess_.topRightCorner(nPulses, nPulses + 1) =
-      -1 * diagScales * D_ * T_.transpose();
-
+    totalHess_.block(0, nPulses + i * (nPulses + 1), nPulses, nPulses + 1) =
+        -1 * diagScales * matrices_[i].D * matrices_[i].T.transpose();
+  }
   // fill in symmetric components and invert to get covariance matrix
-  Hess_.bottomLeftCorner(nPulses + 1, nPulses) =
-      Hess_.topRightCorner(nPulses, nPulses + 1).transpose();
+  totalHess_ = totalHess_.selfadjointView<Eigen::Upper>();
 
-  Cov_ = Hess_.inverse();
+  Cov_ = totalHess_.inverse();
 }
 
 std::vector<double> TemplateFitter::buildDTemplate(
@@ -210,15 +222,27 @@ std::vector<double> TemplateFitter::buildDTemplate(
   return dTemplate;
 }
 
-void TemplateFitter::resizeMatrices(int nSamples, int nPulses) {
-  sampleTimes_.resize(nSamples);
-  pVect_.resize(nSamples);
-  T_.resize(nPulses + 1, nSamples);
-  b_.resize(nPulses + 1);
-  deltas_.resize(nSamples);
-  D_.resize(nPulses, nSamples);
-  D2_.resize(nPulses, nSamples);
-  Hess_.resize(2 * nPulses + 1, 2 * nPulses + 1);
-  Cov_.resize(2 * nPulses + 1, 2 * nPulses + 1);
-  timeSteps_.resize(nPulses);
+bool TemplateFitter::resizeMatrices(int nPulses) {
+  bool resized = false;
+  for (fitMatrices& m : matrices_) {
+    int nSamples = m.sampleTimes.size();
+    if ((nSamples != m.pVect.rows()) || (m.D.rows() != nPulses)) {
+      m.pVect.resize(nSamples);
+      m.T.resize(nPulses + 1, nSamples);
+      m.b.resize(nPulses + 1);
+      m.deltas.resize(nSamples);
+      m.D.resize(nPulses, nSamples);
+      m.D2.resize(nPulses, nSamples);
+      m.Hess.resize(2 * nPulses + 1, 2 * nPulses + 1);
+      resized = true;
+    }
+  }
+
+  if (resized) {
+    timeSteps_.resize(nPulses);
+    totalHess_.resize(3 * nPulses + 2, 3 * nPulses + 2);
+    Cov_.resize(3 * nPulses + 2, 3 * nPulses + 2);
+  }
+
+  return resized;
 }
