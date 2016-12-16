@@ -14,9 +14,9 @@ include_directories(${PROJECT_SOURCE_DIR}/../src/)
 include_directories(${ROOT_INCLUDE_DIRS}) 
 include_directories(${EIGEN_DIR})
 
-add_executable (timer ${PROJECT_SOURCE_DIR}/src/timer.cxx ${sources} ${headers})
+# add_executable (timer ${PROJECT_SOURCE_DIR}/src/timer.cxx ${sources} ${headers})
 
-target_link_libraries(timer ${ROOT_LIBRARIES})
+# target_link_libraries(timer ${ROOT_LIBRARIES})
 
 add_executable (tester ${PROJECT_SOURCE_DIR}/src/tester.cxx ${sources} ${headers})
 

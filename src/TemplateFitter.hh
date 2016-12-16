@@ -20,7 +20,8 @@ class TemplateFitter {
   // output data type
   typedef struct {
     std::vector<double> times;
-    std::vector<double> scales;
+    std::vector<double> scalesA;
+    std::vector<double> scalesB;
     double pedestal;
     double chi2;
     bool converged;
@@ -30,21 +31,26 @@ class TemplateFitter {
   TemplateFitter(int nPulses = 0, int nSamples = 0);
 
   // construct w/ template spline, its limits of validity, and matrix dimensions
-  TemplateFitter(const TSpline3* tSpline, double tMin, double tMax,
-                 int nPulses = 0, int nSamples = 0);
+  TemplateFitter(const TSpline3* tSplineA, const TSpline3* tSplineB,
+                 double tMin, double tMax, int nPulses = 0, int nSamples = 0);
 
   // give template spline and its limits of validity
   // optionally give number of pts at which to evaluate it
-  void setTemplate(const TSpline3* tSpline, double tMin, double tMax,
-                   int tPts = 1000);
+  void setTemplate(const TSpline3* tSplineA, const TSpline3* tSplineB,
+                   double tMin, double tMax, int tPts = 1000);
 
   // give template as a vector with its time limits (time of first and last
   // sample)
-  void setTemplate(const std::vector<double>& temp, double tMin, double tMax);
+  void setTemplate(const std::vector<double>& tempA,
+                   const std::vector<double>& tempB, double tMin, double tMax);
 
   // get covariance_ij. don't call this before doing a fit
   // order of parameters is {t1 ... tn, s1 ... sn, pedestal}
   double getCovariance(int i, int j);
+
+  std::vector<double> getResiduals() const {
+    return std::vector<double>(deltas_.data(), deltas_.data() + deltas_.size());
+  }
 
   // max number of iterations before giving up
   std::size_t getMaxIterations() const { return maxIterations_; }
@@ -56,7 +62,7 @@ class TemplateFitter {
   void setAccuracy(double newAccuracy) { accuracy_ = newAccuracy; }
 
   // get number of pts in templates
-  std::size_t getNTemplatePoints() const { return template_.size(); }
+  std::size_t getNTemplatePoints() const { return templates_[0].size(); }
 
   // fit() functions
   // n pulses is determined by timeGuesses.size()
@@ -234,6 +240,8 @@ class TemplateFitter {
 
   void evalTemplates(const std::vector<double>& tGuesses);
 
+  void evalDerivTemplates(const std::vector<double>& tGuesses);
+
   bool hasConverged();
 
   void calculateCovarianceMatrix();
@@ -254,9 +262,9 @@ class TemplateFitter {
   bool wasDiscontiguous_;
 
   // template stuff
-  std::vector<double> template_;
-  std::vector<double> dTemplate_;
-  std::vector<double> d2Template_;
+  std::vector<std::vector<double>> templates_;
+  std::vector<std::vector<double>> dTemplates_;
+  std::vector<std::vector<double>> d2Templates_;
   double tMin_, tMax_;
 
   // vector of time values corresponding to each sample

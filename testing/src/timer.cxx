@@ -35,6 +35,7 @@ int main(){
   TSpline3* tSpline = (TSpline3*) splineF->Get("masterSpline");
 
   TemplateFitter tf(tSpline, -10, 90);
+  tf.setAccuracy(1e-2);
   
   gRandom->SetSeed(19);
   //  tf.setAccuracy(1e-6);
@@ -59,11 +60,10 @@ int main(){
   auto maxiter = max_element(samples.begin(), samples.end());
   int fitStart = maxiter - 5 - samples.begin();
   rotate(samples.begin(), maxiter-5, samples.end());
-  samples.resize(30);
+  samples.resize(42);
   
   double timeGuess = 5;
   
-  vector<double> errorvect(30, noise);
   // TemplateFitter::Output out;
   auto t1 = chrono::high_resolution_clock::now();
 
@@ -79,6 +79,7 @@ int main(){
   }
   auto t2 = chrono::high_resolution_clock::now();
   cout << 800000/chrono::duration<double>(t2-t1).count() << " fits per sec " << endl;
+  cout << 800000/chrono::duration<double>(t2-t1).count()/4.0 << " fits per sec over 4" << endl;
 
   auto out = outs.back().back();
 
