@@ -20,29 +20,36 @@ class TemplateFitter {
   // output data type
   typedef struct {
     std::vector<double> times;
-    std::vector<double> scalesA;
-    std::vector<double> scalesB;
+    // in form {{scalesA1, ... , scalesAn}, {scalesB1, ..., scalesBN }}
+    std::vector<std::vector<double>> scales;
     double pedestal;
     double chi2;
     bool converged;
   } Output;
 
-  // construct with matrix dimensions (default to 0)
-  TemplateFitter(int nPulses = 0, int nSamples = 0);
+  // default constructor (need to use setTemplate before fitting)
+  TemplateFitter();
 
-  // construct w/ template spline, its limits of validity, and matrix dimensions
-  TemplateFitter(const TSpline3* tSplineA, const TSpline3* tSplineB,
-                 double tMin, double tMax, int nPulses = 0, int nSamples = 0);
+  // construct w/ single basis templates, tPts is number of points to save when
+  // sampling template (more -> more smoothness)
+  explicit TemplateFitter(const TSpline3* spline, int tPts = 10000);
 
-  // give template spline and its limits of validity
-  // optionally give number of pts at which to evaluate it
-  void setTemplate(const TSpline3* tSplineA, const TSpline3* tSplineB,
-                   double tMin, double tMax, int tPts = 1000);
+  // construct w/ multiple basis templates
+  explicit TemplateFitter(const std::vector<const TSpline3*>& splines,
+                          int tPts = 10000);
 
-  // give template as a vector with its time limits (time of first and last
-  // sample)
-  void setTemplate(const std::vector<double>& tempA,
-                   const std::vector<double>& tempB, double tMin, double tMax);
+  // set to template to a single basis function
+  void setTemplate(const TSpline3* spline, int tPts = 10000);
+
+  // set to these templates
+  void setTemplate(const std::vector<const TSpline3*>& splines,
+                   int tPts = 10000);
+
+  // giving templates as vector of vectors is currently not implemented, use
+  // TSpline3
+  // void setTemplate(const std::vector<double>& tempA,
+  //                  const std::vector<double>& tempB, double tMin, double
+  //                  tMax);
 
   // get covariance_ij. don't call this before doing a fit
   // order of parameters is {t1 ... tn, s1 ... sn, pedestal}
@@ -277,7 +284,7 @@ class TemplateFitter {
   // T matrix (see document)
   Eigen::MatrixXd T_;
   // linear parameters will be stored in here after each fit
-  Eigen::VectorXd b_;
+  Eigen::VectorXd linearParams_;
   // vector of pulse minus fit function over noise
   Eigen::VectorXd deltas_;
   // template derivatives matrix

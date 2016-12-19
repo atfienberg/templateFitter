@@ -38,7 +38,7 @@ int main() {
   TSpline3* tSpline = (TSpline3*)splineF.Get("masterSpline");
   TFile splineF2("../beamleakTemplateFile37.root");
   TSpline3* tSplineB = (TSpline3*)splineF2.Get("masterSpline");
-  TemplateFitter tf(tSpline, tSplineB, -10, 90);
+  TemplateFitter tf({tSpline, tSplineB}, 1000);
 
   unique_ptr<TFile> outf(new TFile("testingOut.root", "recreate"));
 
@@ -139,6 +139,34 @@ int main() {
   displayResults(tf, out, sampleTimes, samples, "first A, second B", tSpline,
                  tSplineB);
 
+  cout << "testing double pulse with flat errors, A then three quarters A: "
+       << endl;
+  time = 8 + 1 * (gRandom->Rndm() - 0.5);
+  cout << "true time 1: " << time << endl;
+  energy = 3000.0 + gRandom->Gaus(0, 0.01 * 3000);
+  cout << "true energy 1: " << energy << endl;
+  time2 = 14 + 1 * (gRandom->Rndm() - 0.5);
+  cout << "true time 2: " << time2 << endl;
+  energy2 = 4500.0 + gRandom->Gaus(0, 0.01 * 3000);
+  cout << "true energy 2: " << energy2 << endl;
+  pedestal = 1000.0 + 100 * (gRandom->Rndm() - 0.5);
+  cout << "true pedestal " << pedestal << endl;
+  noise = 1.65;
+  for (size_t s = 0; s < samples.size(); ++s) {
+    if ((s - time < -10) || (s - time > 90)) {
+      samples[s] = pedestal;
+    } else {
+      samples[s] = pedestal + energy * tSpline->Eval(s - time) +
+                   3 * energy2 / 4.0 * tSpline->Eval(s - time2) +
+                   energy2 / 4.0 * tSplineB->Eval(s - time2);
+    }
+    samples[s] += gRandom->Gaus(0, noise);
+  }
+
+  out = tf.fit(samples, std::vector<double>{8, 14}, noise);
+  displayResults(tf, out, sampleTimes, samples,
+                 "first A, second three quarters A", tSpline, tSplineB);
+
   outf->Write();
 }
 
@@ -163,17 +191,17 @@ void displayResults(TemplateFitter& tf, TemplateFitter::Output out,
 
     double varEA = tf.getCovariance(2 * i + nPulses, 2 * i + nPulses);
     sigA.push_back(sqrt(varEA));
-    cout << "energyA" << i + 1 << ": " << out.scalesA[i] << " +/- "
+    cout << "energyA" << i + 1 << ": " << out.scales[i][0] << " +/- "
          << sigA.back() << endl;
 
     double varEB = tf.getCovariance(2 * i + 1 + nPulses, 2 * i + 1 + nPulses);
     sigB.push_back(sqrt(varEB));
-    cout << "energyB" << i + 1 << ": " << out.scalesB[i] << " +/- "
+    cout << "energyB" << i + 1 << ": " << out.scales[i][1] << " +/- "
          << sigB.back() << endl;
 
     double correlation = tf.getCovariance(2 * i + nPulses, 2 * i + 1 + nPulses);
     sigTot.push_back(sqrt(varEA + varEB + 2 * correlation));
-    cout << "total energy: " << out.scalesA[i] + out.scalesB[i] << " +/- "
+    cout << "total energy: " << out.scales[i][0] + out.scales[i][1] << " +/- "
          << sigTot.back() << std::endl;
   }
   double sigPed = sqrt(tf.getCovariance(3 * nPulses, 3 * nPulses));
@@ -220,8 +248,8 @@ void displayResults(TemplateFitter& tf, TemplateFitter::Output out,
   func->SetParameter(0, out.pedestal);
   for (int i = 0; i < nPulses; ++i) {
     func->SetParameter(1 + 3 * i, out.times[i]);
-    func->SetParameter(1 + 3 * i + 1, out.scalesA[i]);
-    func->SetParameter(1 + 3 * i + 2, out.scalesB[i]);
+    func->SetParameter(1 + 3 * i + 1, out.scales[i][0]);
+    func->SetParameter(1 + 3 * i + 2, out.scales[i][1]);
   }
 
   g->SetMarkerStyle(20);
@@ -240,11 +268,13 @@ void displayResults(TemplateFitter& tf, TemplateFitter::Output out,
   txtbox->SetFillColor(kWhite);
   for (int i = 0; i < nPulses; ++i) {
     txtbox->AddText(
-        Form("EA_{%i}: %.0f #pm %.0f", i + 1, out.scalesA[i], sigA[i]));
+        Form("t_{%i}: %.03f #pm %.03f", i + 1, out.times[i], sigT[i]));
     txtbox->AddText(
-        Form("EB_{%i}: %.0f #pm %.0f", i + 1, out.scalesB[i], sigB[i]));
+        Form("EA_{%i}: %.0f #pm %.0f", i + 1, out.scales[i][0], sigA[i]));
+    txtbox->AddText(
+        Form("EB_{%i}: %.0f #pm %.0f", i + 1, out.scales[i][1], sigB[i]));
     txtbox->AddText(Form("ETOTAL_{%i}: %.0f #pm %.0f", i + 1,
-                         out.scalesB[i] + out.scalesA[i], sigTot[i]));
+                         out.scales[i][1] + out.scales[i][0], sigTot[i]));
   }
   txtbox->AddText(Form("pedestal: %.0f #pm %.1f", out.pedestal, sigPed));
   txtbox->AddText(Form("#chi^{2} / NDF : %.2f", out.chi2));
