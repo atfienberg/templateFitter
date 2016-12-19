@@ -52,7 +52,8 @@ int main() {
     if ((s - time < -10) || (s - time > 90)) {
       samples[s] = 0;
     } else {
-      samples[s] = energy * tSpline->Eval(s - time);
+      samples[s] = energy / 2.0 * tSpline->Eval(s - time) +
+                   energy / 2.0 * tSplineB->Eval(s - time);
     }
     samples[s] += gRandom->Gaus(0, noise) + pedestal;
   }
@@ -85,7 +86,8 @@ int main() {
   auto out = outs.back().back();
 
   cout << "t: " << out.times[0] + fitStart << endl;
-  cout << "scale: " << out.scales[0][0] << endl;
+  cout << "scale1: " << out.scales[0][0] << endl;
+  cout << "scale2: " << out.scales[0][1] << endl;
   cout << "chi2: " << out.chi2 << endl;
 
   // cout << " t = " << out.times[0] + fitStart << " +/- " <<
