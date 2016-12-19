@@ -32,9 +32,9 @@ void fit(TemplateFitter tf, vector<UShort_t> samples, double timeGuess,
 int main() {
   TFile splineF("../beamTemplateFile37.root");
   TSpline3* tSpline = (TSpline3*)splineF.Get("masterSpline");
-  // TFile splineF2("../beamleakTemplateFile37.root");
-  // TSpline3* tSplineB = (TSpline3*)splineF2.Get("masterSpline");
-  TemplateFitter tf(tSpline);
+  TFile splineF2("../beamleakTemplateFile37.root");
+  TSpline3* tSplineB = (TSpline3*)splineF2.Get("masterSpline");
+  TemplateFitter tf({tSpline, tSplineB}, 1000);
   tf.setAccuracy(1e-2);
 
   gRandom->SetSeed(19);
