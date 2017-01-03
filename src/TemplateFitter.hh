@@ -20,7 +20,8 @@ class TemplateFitter {
   // output data type
   typedef struct {
     std::vector<double> times;
-    // in form {{scalesA1, ... , scalesAn}, {scalesB1, ..., scalesBN }}
+    // with templates A, B, ... and n pulses
+    // output in form {{scalesA1, scalesB1, ...}, ..., {scalesAn, scalesBn, ...}}
     std::vector<std::vector<double>> scales;
     double pedestal;
     double chi2;
