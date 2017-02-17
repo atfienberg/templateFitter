@@ -46,6 +46,10 @@ class TemplateFitter {
   // order of parameters is {t1 ... tn, s1 ... sn, pedestal}
   double getCovariance(int i, int j);
 
+  std::vector<double> getResiduals() const {
+    return std::vector<double>(deltas_.data(), deltas_.data() + deltas_.size());
+  }
+
   // max number of iterations before giving up
   std::size_t getMaxIterations() const { return maxIterations_; }
   void setMaxIterations(std::size_t maxIters) { maxIterations_ = maxIters; }
