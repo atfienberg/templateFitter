@@ -273,7 +273,7 @@ class TemplateFitter {
   // T matrix (see document)
   Eigen::MatrixXd T_;
   // linear parameters will be stored in here after each fit
-  Eigen::VectorXd b_;
+  Eigen::VectorXd linearParams_;
   // vector of pulse minus fit function over noise
   Eigen::VectorXd deltas_;
   // template derivatives matrix

@@ -16,7 +16,7 @@ TemplateFitter::TemplateFitter(const TSpline3* tSpline, double tMin,
       sampleTimes_(nSamples),
       pVect_(nSamples),
       T_(nPulses + 1, nSamples),
-      b_(nPulses + 1),
+      linearParams_(nPulses + 1),
       deltas_(nSamples),
       D_(nPulses, nSamples),
       D2_(nPulses, nSamples),
@@ -65,34 +65,48 @@ TemplateFitter::Output TemplateFitter::doFit(
     const std::vector<double>& timeGuesses) {
   const int nPulses = D_.rows();
   const int nSamples = D_.cols();
-
   covReady_ = false;
 
-  std::size_t nIterations = 0;
+  Output fitOutput = {timeGuesses, std::vector<double>(nPulses, 0), 0, 0,
+                      false};
+  timeSteps_.setZero(nPulses);
 
-  Output fitOutput = {timeGuesses, std::vector<double>(nPulses), 0, 0, true};
+  // break on nIterations <= max, not < max
+  // this allows call to fit with maxIterations == 0 to solve
+  // for linear params at user provided times, without taking any time steps.
+  // iteration j+1 solves for linear params at times found in iteration j
+  for (unsigned int nIterations = 0;
+       nIterations <= maxIterations_ && !(fitOutput.converged); ++nIterations) {
+    // update time guesses
+    // it is important to do this at beginning of loop, not end.
+    // this ensures times in fit result match times for which linear params
+    // were solved and chi2/residuals calculated
+    for (std::size_t i = 0; i < timeGuesses.size(); ++i) {
+      fitOutput.times[i] += timeSteps_(i);
+    }
 
-  while (true) {
     evalTemplates(fitOutput.times);
 
     // first solve for linear parameters based on current time guesses
     Hess_.bottomRightCorner(nPulses + 1, nPulses + 1) = T_ * T_.transpose();
 
-    b_ = T_ * pVect_;
+    linearParams_ = T_ * pVect_;
 
-    b_ = Hess_.bottomRightCorner(nPulses + 1, nPulses + 1).ldlt().solve(b_);
+    linearParams_ = Hess_.bottomRightCorner(nPulses + 1, nPulses + 1)
+                        .ldlt()
+                        .solve(linearParams_);
 
     // build deltas vector based on current parameters
-    deltas_ = pVect_ - T_.transpose() * b_;
+    deltas_ = pVect_ - T_.transpose() * linearParams_;
 
     // build time-time block of Hessian and solve for time steps
-    auto diagScales = b_.head(nPulses).asDiagonal();
+    auto diagScales = linearParams_.head(nPulses).asDiagonal();
 
     Hess_.topLeftCorner(nPulses, nPulses) = D_ * D_.transpose();
     Hess_.topLeftCorner(nPulses, nPulses) =
         diagScales * Hess_.topLeftCorner(nPulses, nPulses) * diagScales;
     Hess_.topLeftCorner(nPulses, nPulses) -=
-        (b_.head(nPulses).cwiseProduct(D2_ * deltas_)).asDiagonal();
+        (linearParams_.head(nPulses).cwiseProduct(D2_ * deltas_)).asDiagonal();
 
     // solve set of time steps with Newton's method
     timeSteps_ = -1 *
@@ -100,29 +114,15 @@ TemplateFitter::Output TemplateFitter::doFit(
                      .ldlt()
                      .solve(diagScales * D_ * deltas_);
 
-    // check for convergence, update time guesses
-    ++nIterations;
-    if ((nIterations <= maxIterations_) && (!hasConverged())) {
-      for (std::size_t i = 0; i < timeGuesses.size(); ++i) {
-        fitOutput.times[i] += timeSteps_(i);
-      }
-    }
-
-    else if (nIterations <= maxIterations_) {
-      break;
-    }
-
-    else {
-      fitOutput.converged = false;
-      break;
-    }
+    // check for convergence
+    fitOutput.converged = hasConverged();
   }
 
   // return output
   for (int i = 0; i < nPulses; ++i) {
-    fitOutput.scales[i] = b_(i);
+    fitOutput.scales[i] = linearParams_(i);
   }
-  fitOutput.pedestal = b_(nPulses);
+  fitOutput.pedestal = linearParams_(nPulses);
   fitOutput.chi2 =
       (deltas_.transpose() * deltas_)(0, 0) / (nSamples - 2 * nPulses - 1);
   return fitOutput;
@@ -176,7 +176,7 @@ bool TemplateFitter::hasConverged() {
 void TemplateFitter::calculateCovarianceMatrix() {
   const int nPulses = D_.rows();
 
-  auto diagScales = b_.head(nPulses).asDiagonal();
+  auto diagScales = linearParams_.head(nPulses).asDiagonal();
 
   // assuming a fit was done successfully, the time-time
   // and scale/ped - scale/ped blocks in hessian
@@ -214,7 +214,7 @@ void TemplateFitter::resizeMatrices(int nSamples, int nPulses) {
   sampleTimes_.resize(nSamples);
   pVect_.resize(nSamples);
   T_.resize(nPulses + 1, nSamples);
-  b_.resize(nPulses + 1);
+  linearParams_.resize(nPulses + 1);
   deltas_.resize(nSamples);
   D_.resize(nPulses, nSamples);
   D2_.resize(nPulses, nSamples);
