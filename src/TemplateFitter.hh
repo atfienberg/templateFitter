@@ -1,8 +1,9 @@
-/*Template fitter class built on top of the Eigen3 linear algebra library
-
-  Aaron Fienberg
-  fienberg@uw.edu
-*/
+// Template fitter class built on top of the Eigen3 linear algebra library
+//
+// see https://gm2-docdb.fnal.gov/cgi-bin/private/ShowDocument?docid=4597
+//
+// Aaron Fienberg
+// fienberg@uw.edu
 
 #pragma once
 
@@ -10,10 +11,15 @@
 #include <numeric>
 #include <cassert>
 #include <type_traits>
+#include <array>
 
 #include <Eigen/Dense>
 
 #include "TSpline.h"
+
+#include "CubicSpline.hh"
+
+namespace gm2calo {
 
 class TemplateFitter {
  public:
@@ -29,18 +35,23 @@ class TemplateFitter {
   // construct with matrix dimensions (default to 0)
   TemplateFitter(int nPulses = 0, int nSamples = 0);
 
-  // construct w/ template spline, its limits of validity, and matrix dimensions
-  TemplateFitter(const TSpline3* tSpline, double tMin, double tMax,
-                 int nPulses = 0, int nSamples = 0);
+  // construct w/ template spline matrix dimensions
+  TemplateFitter(const TSpline3& primarySpline, int nPulses = 0,
+                 int nSamples = 0);
 
-  // give template spline and its limits of validity
-  // optionally give number of pts at which to evaluate it
-  void setTemplate(const TSpline3* tSpline, double tMin, double tMax,
-                   int tPts = 1000);
+  // construct with two templates
+  TemplateFitter(const TSpline3& primarySpline,
+                 const TSpline3& secondarySpline);
 
-  // give template as a vector with its time limits (time of first and last
-  // sample)
-  void setTemplate(const std::vector<double>& temp, double tMin, double tMax);
+  void setTemplate(const TSpline3& tSpline) { setPrimaryTemplate(tSpline); }
+
+  void setPrimaryTemplate(const TSpline3& tSpline) {
+    templates_[0] = buildCubicSpline(tSpline);
+  }
+
+  void setSecondaryTemplate(const TSpline3& tSpline) {
+    templates_[1] = buildCubicSpline(tSpline);
+  }
 
   // get covariance_ij. don't call this before doing a fit
   // order of parameters is {t1 ... tn, s1 ... sn, pedestal}
@@ -59,8 +70,10 @@ class TemplateFitter {
   double getAccuracy() const { return accuracy_; }
   void setAccuracy(double newAccuracy) { accuracy_ = newAccuracy; }
 
-  // get number of pts in templates
-  std::size_t getNTemplatePoints() const { return template_.size(); }
+  // get largest maximum valid time of the stored templates
+  double getTMax() const {
+    return std::max(templates_[0].getXMax(), templates_[1].getXMax());
+  }
 
   // fit() functions
   // n pulses is determined by timeGuesses.size()
@@ -71,6 +84,7 @@ class TemplateFitter {
   template <typename sampleType, typename errorType = double>
   Output fit(const std::vector<sampleType>& trace, double timeGuess,
              errorType error = 1.0) {
+    templatePattern_.resize(0);
     return fit(trace, std::vector<double>{timeGuess}, error);
   }
 
@@ -111,6 +125,7 @@ class TemplateFitter {
     }
 
     wasDiscontiguous_ = false;
+    templatePattern_.resize(0);
     return doFit(timeGuesses);
   }
 
@@ -146,6 +161,98 @@ class TemplateFitter {
     isFlatNoise_ = false;
 
     wasDiscontiguous_ = false;
+    templatePattern_.resize(0);
+    return doFit(timeGuesses);
+  }
+
+  // This version of the fit function passes in a pattern for
+  // using multiple templates.
+  template <typename sampleType, typename noiseType = double,
+            typename patternType>
+  Output multiFit(const std::vector<sampleType>& trace,
+                  const std::vector<double>& timeGuesses,
+                  const std::vector<patternType>& tempPattern,
+                  noiseType noiseLevel = 1.0) {
+    static_assert(std::is_arithmetic<sampleType>::value,
+                  "trace must be vector of numbers!");
+    static_assert(std::is_arithmetic<noiseType>::value,
+                  "noise level must be a number!");
+    static_assert(std::is_integral<patternType>::value,
+                  "template pattern must be integer!");
+    assert(timeGuesses.size() == tempPattern.size());
+    assert(noiseLevel != 0);
+
+    bool resized = false;
+
+    if ((trace.size() != static_cast<std::size_t>(pVect_.rows())) ||
+        (timeGuesses.size() != static_cast<std::size_t>(D_.rows()))) {
+      std::size_t oldSize = sampleTimes_.size();
+      resizeMatrices(trace.size(), timeGuesses.size());
+      if ((trace.size() > oldSize) || (wasDiscontiguous_)) {
+        std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
+      }
+      resized = true;
+    } else if (wasDiscontiguous_) {
+      std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
+    }
+
+    if ((resized) || (!isFlatNoise_) || (lastNoiseLevel_ != noiseLevel)) {
+      T_.bottomRows(1).fill(1.0 / noiseLevel);
+      lastNoiseLevel_ = noiseLevel;
+      isFlatNoise_ = true;
+    }
+
+    for (std::size_t i = 0; i < trace.size(); ++i) {
+      pVect_(i) = trace[i] * T_.bottomRows(1)(0, i);
+    }
+
+    templatePattern_.resize(tempPattern.size());
+    for (std::size_t i = 0; i < tempPattern.size(); ++i) {
+      templatePattern_[i] = static_cast<bool>(tempPattern[i]);
+    }
+
+    wasDiscontiguous_ = false;
+    return doFit(timeGuesses);
+  }
+
+  // This method uses a template pattern and supports
+  template <typename sampleType, typename noiseType, typename patternType>
+  Output multiFit(const std::vector<sampleType>& trace,
+                  const std::vector<double>& timeGuesses,
+                  const std::vector<patternType>& tempPattern,
+                  const std::vector<noiseType>& errors) {
+    static_assert(std::is_arithmetic<sampleType>::value,
+                  "trace must be vector of numbers!");
+    static_assert(std::is_arithmetic<noiseType>::value,
+                  "errors must be vector of numbers!");
+    static_assert(std::is_integral<patternType>::value,
+                  "template pattern must be integer!");
+    assert(errors.size() == trace.size());
+    assert(timeGuesses.size() == tempPattern.size());
+
+    if ((trace.size() != static_cast<std::size_t>(pVect_.rows())) ||
+        (timeGuesses.size() != static_cast<std::size_t>(D_.rows()))) {
+      std::size_t oldSize = sampleTimes_.size();
+      resizeMatrices(trace.size(), timeGuesses.size());
+      if ((trace.size() > oldSize) || (wasDiscontiguous_)) {
+        std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
+      }
+    } else if (wasDiscontiguous_) {
+      std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
+    }
+
+    for (std::size_t i = 0; i < trace.size(); ++i) {
+      T_.bottomRows(1)(0, i) = 1.0 / errors[i];
+      pVect_(i) = trace[i] * T_.bottomRows(1)(0, i);
+    }
+    isFlatNoise_ = false;
+
+    templatePattern_.resize(tempPattern.size());
+    for (std::size_t i = 0; i < tempPattern.size(); ++i) {
+      templatePattern_[i] = static_cast<bool>(tempPattern[i]);
+    }
+
+    wasDiscontiguous_ = false;
     return doFit(timeGuesses);
   }
 
@@ -158,6 +265,7 @@ class TemplateFitter {
   Output discontiguousFit(const std::vector<sampleType>& trace,
                           const std::vector<timeType>& sampleTimes,
                           double timeGuess, errorType error = 1.0) {
+    templatePattern_.resize(0);
     return discontiguousFit(trace, sampleTimes, std::vector<double>{timeGuess},
                             error);
   }
@@ -198,10 +306,11 @@ class TemplateFitter {
     }
 
     wasDiscontiguous_ = true;
+    templatePattern_.resize(0);
     return doFit(timeGuesses);
   }
 
-  // discontiguous fit with arbitrary errors
+  // discontiguous fit with arbitrary errors.
   template <typename sampleType, typename timeType, typename noiseType>
   Output discontiguousFit(const std::vector<sampleType>& trace,
                           const std::vector<timeType>& sampleTimes,
@@ -213,6 +322,91 @@ class TemplateFitter {
                   "sampleTimes must be vector of numbers!");
     static_assert(std::is_arithmetic<noiseType>::value,
                   "errors must be vector of numbers!");
+    assert(trace.size() == sampleTimes.size());
+    assert(errors.size() == trace.size());
+    if ((trace.size() != static_cast<std::size_t>(pVect_.rows())) ||
+        (timeGuesses.size() != static_cast<std::size_t>(D_.rows()))) {
+      resizeMatrices(trace.size(), timeGuesses.size());
+    }
+
+    std::copy(sampleTimes.begin(), sampleTimes.end(), sampleTimes_.begin());
+
+    for (std::size_t i = 0; i < trace.size(); ++i) {
+      T_.bottomRows(1)(0, i) = 1.0 / errors[i];
+      pVect_(i) = trace[i] * T_.bottomRows(1)(0, i);
+    }
+    isFlatNoise_ = false;
+
+    wasDiscontiguous_ = true;
+    templatePattern_.resize(0);
+    return doFit(timeGuesses);
+  }
+
+  // Multi-template, discontiguous fit with flat errors
+  template <typename sampleType, typename timeType, typename patternType,
+            typename noiseType = double>
+  Output discontiguousMultiFit(const std::vector<sampleType>& trace,
+                               const std::vector<timeType>& sampleTimes,
+                               const std::vector<double>& timeGuesses,
+                               const std::vector<patternType>& tempPattern,
+                               noiseType noiseLevel = 1.0) {
+    static_assert(std::is_arithmetic<sampleType>::value,
+                  "trace must be vector of numbers!");
+    static_assert(std::is_arithmetic<timeType>::value,
+                  "sampleTimes must be vector of numbers!");
+    static_assert(std::is_integral<patternType>::value,
+                  "template pattern must be integer!");
+    static_assert(std::is_arithmetic<noiseType>::value,
+                  "errors must be vector of numbers!");
+    assert(timeGuesses.size() == tempPattern.size());
+    assert(trace.size() == sampleTimes.size());
+
+    bool resized = false;
+
+    if ((trace.size() != static_cast<std::size_t>(pVect_.rows())) ||
+        (timeGuesses.size() != static_cast<std::size_t>(D_.rows()))) {
+      resizeMatrices(trace.size(), timeGuesses.size());
+      resized = true;
+    }
+
+    std::copy(sampleTimes.begin(), sampleTimes.end(), sampleTimes_.begin());
+
+    if ((resized) || (!isFlatNoise_) || (lastNoiseLevel_ != noiseLevel)) {
+      T_.bottomRows(1).fill(1.0 / noiseLevel);
+      lastNoiseLevel_ = noiseLevel;
+      isFlatNoise_ = true;
+    }
+
+    for (std::size_t i = 0; i < trace.size(); ++i) {
+      pVect_(i) = trace[i] * T_.bottomRows(1)(0, i);
+    }
+
+    templatePattern_.resize(tempPattern.size());
+    for (std::size_t i = 0; i < tempPattern.size(); ++i) {
+      templatePattern_[i] = static_cast<bool>(tempPattern[i]);
+    }
+
+    wasDiscontiguous_ = true;
+    return doFit(timeGuesses);
+  }
+
+  // Multi-template, discontiguous fit with arbitrary errors
+  template <typename sampleType, typename timeType, typename patternType,
+            typename noiseType>
+  Output discontiguousMultiFit(const std::vector<sampleType>& trace,
+                               const std::vector<timeType>& sampleTimes,
+                               const std::vector<double>& timeGuesses,
+                               const std::vector<patternType>& tempPattern,
+                               const std::vector<noiseType>& errors) {
+    static_assert(std::is_arithmetic<sampleType>::value,
+                  "trace must be vector of numbers!");
+    static_assert(std::is_arithmetic<timeType>::value,
+                  "sampleTimes must be vector of numbers!");
+    static_assert(std::is_integral<patternType>::value,
+                  "template pattern must be integer!");
+    static_assert(std::is_arithmetic<noiseType>::value,
+                  "errors must be vector of numbers!");
+    assert(timeGuesses.size() == tempPattern.size());
     assert(trace.size() == sampleTimes.size());
     assert(errors.size() == trace.size());
 
@@ -229,20 +423,27 @@ class TemplateFitter {
     }
     isFlatNoise_ = false;
 
+    templatePattern_.resize(tempPattern.size());
+    for (std::size_t i = 0; i < tempPattern.size(); ++i) {
+      templatePattern_[i] = static_cast<bool>(tempPattern[i]);
+    }
+
     wasDiscontiguous_ = true;
     return doFit(timeGuesses);
   }
 
  private:
+  static CubicSpline buildCubicSpline(
+      const TSpline3& tSpline,
+      CubicSpline::BoundaryType cond = CubicSpline::BoundaryType::first);
+
   Output doFit(const std::vector<double>& timeGuesses);
 
   void evalTemplates(const std::vector<double>& tGuesses);
 
-  bool hasConverged();
+  bool hasConverged() const;
 
   void calculateCovarianceMatrix();
-
-  std::vector<double> buildDTemplate(const std::vector<double>& temp);
 
   void resizeMatrices(int nSamples, int nPulses);
 
@@ -257,14 +458,13 @@ class TemplateFitter {
   bool isFlatNoise_;
   bool wasDiscontiguous_;
 
-  // template stuff
-  std::vector<double> template_;
-  std::vector<double> dTemplate_;
-  std::vector<double> d2Template_;
-  double tMin_, tMax_;
+  // templates
+  // templates_[0] is primary template, templates_[1] is secondary
+  std::array<CubicSpline, 2> templates_;
 
   // vector of time values corresponding to each sample
   std::vector<double> sampleTimes_;
+  std::vector<bool> templatePattern_;
 
   // eigen matrices, all kept around to avoid repeated allocation
 
@@ -287,3 +487,4 @@ class TemplateFitter {
   // proposed time steps to minimum
   Eigen::VectorXd timeSteps_;
 };
+}

@@ -1,19 +1,21 @@
-#include "TemplateFitter.hh"
+// Template fitter implementation
+//
+// Aaron Fienberg
+// fienberg@uw.edu
 
+#include "TemplateFitter.hh"
 #include <cmath>
 
-TemplateFitter::TemplateFitter(int nPulses, int nSamples)
-    : TemplateFitter(NULL, 0, 0, nPulses, nSamples) {}
-
-TemplateFitter::TemplateFitter(const TSpline3* tSpline, double tMin,
-                               double tMax, int nPulses, int nSamples)
+gm2calo::TemplateFitter::TemplateFitter(int nPulses, int nSamples)
     : accuracy_(1e-4),
       maxIterations_(200),
       covReady_(false),
       lastNoiseLevel_(0),
       isFlatNoise_(false),
       wasDiscontiguous_(false),
+      templates_(),
       sampleTimes_(nSamples),
+      templatePattern_(),
       pVect_(nSamples),
       T_(nPulses + 1, nSamples),
       linearParams_(nPulses + 1),
@@ -23,11 +25,23 @@ TemplateFitter::TemplateFitter(const TSpline3* tSpline, double tMin,
       Hess_(2 * nPulses + 1, 2 * nPulses + 1),
       Cov_(2 * nPulses + 1, 2 * nPulses + 1),
       timeSteps_(nPulses) {
-  setTemplate(tSpline, tMin, tMax);
   std::iota(sampleTimes_.begin(), sampleTimes_.end(), 0.0);
 }
 
-double TemplateFitter::getCovariance(int i, int j) {
+gm2calo::TemplateFitter::TemplateFitter(const TSpline3& primarySpline,
+                                        int nPulses, int nSamples)
+    : TemplateFitter(nPulses, nSamples) {
+  setPrimaryTemplate(primarySpline);
+}
+
+gm2calo::TemplateFitter::TemplateFitter(const TSpline3& primarySpline,
+                                        const TSpline3& secondarySpline)
+    : TemplateFitter(0, 0) {
+  setPrimaryTemplate(primarySpline);
+  setSecondaryTemplate(secondarySpline);
+}
+
+double gm2calo::TemplateFitter::getCovariance(int i, int j) {
   if (covReady_) {
     return Cov_(i, j);
   }
@@ -36,32 +50,7 @@ double TemplateFitter::getCovariance(int i, int j) {
   return Cov_(i, j);
 }
 
-void TemplateFitter::setTemplate(const TSpline3* tSpline, double tMin,
-                                 double tMax, int tPts) {
-  if (tSpline) {
-    tMin_ = tMin;
-    tMax_ = tMax;
-    template_.resize(tPts);
-    double stepSize = (tMax_ - tMin) / (template_.size() - 1);
-    for (std::size_t i = 0; i < template_.size(); ++i) {
-      template_[i] = tSpline->Eval(tMin_ + i * stepSize);
-    }
-    dTemplate_ = buildDTemplate(template_);
-    d2Template_ = buildDTemplate(dTemplate_);
-  }
-}
-
-void TemplateFitter::setTemplate(const std::vector<double>& temp, double tMin,
-                                 double tMax) {
-  assert(temp.size() > 1);
-  tMin_ = tMin;
-  tMax_ = tMax;
-  template_ = temp;
-  dTemplate_ = buildDTemplate(template_);
-  d2Template_ = buildDTemplate(dTemplate_);
-}
-
-TemplateFitter::Output TemplateFitter::doFit(
+gm2calo::TemplateFitter::Output gm2calo::TemplateFitter::doFit(
     const std::vector<double>& timeGuesses) {
   const int nPulses = D_.rows();
   const int nSamples = D_.cols();
@@ -71,7 +60,6 @@ TemplateFitter::Output TemplateFitter::doFit(
                       false};
   timeSteps_.setZero(nPulses);
 
-  // break on nIterations <= max, not < max
   // this allows call to fit with maxIterations == 0 to solve
   // for linear params at user provided times, without taking any time steps.
   // iteration j+1 solves for linear params at times found in iteration j
@@ -111,7 +99,7 @@ TemplateFitter::Output TemplateFitter::doFit(
     // solve set of time steps with Newton's method
     timeSteps_ = -1 *
                  Hess_.topLeftCorner(nPulses, nPulses)
-                     .ldlt()
+                     .colPivHouseholderQr()
                      .solve(diagScales * D_ * deltas_);
 
     // check for convergence
@@ -128,42 +116,41 @@ TemplateFitter::Output TemplateFitter::doFit(
   return fitOutput;
 }
 
-void TemplateFitter::evalTemplates(const std::vector<double>& tGuesses) {
-  double stepsPerTime = (template_.size() - 1) / (tMax_ - tMin_);
-
+void gm2calo::TemplateFitter::evalTemplates(
+    const std::vector<double>& tGuesses) {
+  // fill T_, D_, D2_ matrices row by row
   for (int i = 0; i < D_.rows(); ++i) {
-    for (int j = 0; j < D_.cols(); ++j) {
-      double t = sampleTimes_[j] - tGuesses[i];
-      if ((t > tMin_) && (t < tMax_)) {
-        double where = (t - tMin_) * stepsPerTime;
-        int low = std::floor(where);
-        double dt = where - low;
+    // shift sample times by time guess for this pulse
+    auto shiftedTimes = sampleTimes_;
+    for (auto& time : shiftedTimes) {
+      time -= tGuesses[i];
+    }
 
-        T_(i, j) =
-            (template_[low] + (template_[low + 1] - template_[low]) * dt) *
-            T_.bottomRows(1)(0, j);
+    // select template based on templatePattern
+    const CubicSpline& thisTemplate =
+        (templatePattern_.size() > 0) && (templatePattern_[i] == true)
+            ? templates_[1]
+            : templates_[0];
 
-        D_(i, j) =
-            (dTemplate_[low] + (dTemplate_[low + 1] - dTemplate_[low]) * dt) *
-            T_.bottomRows(1)(0, j);
+    // evaluate template at these shifted times
+    // first row has the template values
+    // second has the first derivatives
+    // third has the second derivatives
+    const CubicSpline::Matrix valuesAndDerivatives =
+        thisTemplate.evalWithDerivatives(shiftedTimes);
 
-        D2_(i, j) = (d2Template_[low] +
-                     (d2Template_[low + 1] - d2Template_[low]) * dt) *
-                    T_.bottomRows(1)(0, j);
-      }
-
-      else {
-        T_(i, j) = 0;
-
-        D_(i, j) = 0;
-
-        D2_(i, j) = 0;
-      }
+    // fill row i of T_, D_, and D2_
+    for (unsigned int j = 0; j < valuesAndDerivatives.cols(); ++j) {
+      // sample weights (1/uncertainty) are stored in bottom row of T_
+      const double thisWeight = T_(T_.rows() - 1, j);
+      T_(i, j) = thisWeight * valuesAndDerivatives(0, j);
+      D_(i, j) = thisWeight * valuesAndDerivatives(1, j);
+      D2_(i, j) = thisWeight * valuesAndDerivatives(2, j);
     }
   }
 }
 
-bool TemplateFitter::hasConverged() {
+bool gm2calo::TemplateFitter::hasConverged() const {
   double maxStep = 0;
   for (int i = 0; i < timeSteps_.rows(); ++i) {
     double absStep = std::abs(timeSteps_(i));
@@ -173,7 +160,7 @@ bool TemplateFitter::hasConverged() {
   return maxStep < accuracy_;
 }
 
-void TemplateFitter::calculateCovarianceMatrix() {
+void gm2calo::TemplateFitter::calculateCovarianceMatrix() {
   const int nPulses = D_.rows();
 
   auto diagScales = linearParams_.head(nPulses).asDiagonal();
@@ -193,24 +180,7 @@ void TemplateFitter::calculateCovarianceMatrix() {
   Cov_ = Hess_.inverse();
 }
 
-std::vector<double> TemplateFitter::buildDTemplate(
-    const std::vector<double>& temp) {
-  assert(temp.size() > 1);
-
-  std::vector<double> dTemplate(temp.size());
-  double stepSize = (tMax_ - tMin_) / (temp.size() - 1);
-
-  dTemplate[0] = (temp[1] - temp[0]) / stepSize;
-  for (std::size_t i = 1; i < temp.size() - 1; ++i) {
-    dTemplate[i] = (temp[i + 1] - temp[i - 1]) / (2 * stepSize);
-  }
-  dTemplate[temp.size() - 1] =
-      (temp[temp.size() - 1] - temp[temp.size() - 2]) / stepSize;
-
-  return dTemplate;
-}
-
-void TemplateFitter::resizeMatrices(int nSamples, int nPulses) {
+void gm2calo::TemplateFitter::resizeMatrices(int nSamples, int nPulses) {
   sampleTimes_.resize(nSamples);
   pVect_.resize(nSamples);
   T_.resize(nPulses + 1, nSamples);
@@ -221,4 +191,18 @@ void TemplateFitter::resizeMatrices(int nSamples, int nPulses) {
   Hess_.resize(2 * nPulses + 1, 2 * nPulses + 1);
   Cov_.resize(2 * nPulses + 1, 2 * nPulses + 1);
   timeSteps_.resize(nPulses);
+}
+
+// build gm2calo::CubicSpline from knots stored in TSpline3 object
+gm2calo::CubicSpline gm2calo::TemplateFitter::buildCubicSpline(
+    const TSpline3& tSpline, CubicSpline::BoundaryType cond) {
+  unsigned int nKnots = tSpline.GetNp();
+
+  CubicSpline::Knots knots(nKnots);
+
+  for (unsigned int i = 0; i < nKnots; ++i) {
+    tSpline.GetKnot(i, knots.xs[i], knots.ys[i]);
+  }
+
+  return CubicSpline(knots, cond);
 }
